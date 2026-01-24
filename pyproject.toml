@@ -1,0 +1,137 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "covenance"
+dynamic = ["version"]
+description = "Online LLM clients for OpenAI, Google Gemini, Mistral, Anthropic Claude, and OpenRouter"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Ilya Kamen" },
+]
+keywords = [
+    "llm",
+    "openai",
+    "anthropic",
+    "mistral",
+    "gemini",
+    "openrouter",
+]
+classifiers = [
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "anthropic",
+    "openai",
+    "mistralai",
+    "google-genai",
+    "pydantic",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = [
+    "build",
+    "pre-commit",
+    "pytest",
+    "pytest-cov",
+    "twine",
+    "ruff",
+]
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "covenance/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["covenance"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/covenance",
+    "/README.md",
+    "/pyproject.toml",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q"
+testpaths = [
+    "tests",
+]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    "online: marks tests that make real LLM calls (enable with '-m online')",
+]
+filterwarnings = [
+    "ignore::pydantic.PydanticDeprecatedSince212",
+    "ignore:.*Using `@model_validator` with mode='after' on a classmethod is deprecated.*:DeprecationWarning",
+    "ignore:builtin type SwigPyPacked has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type SwigPyObject has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type swigvarlink has no __module__ attribute:DeprecationWarning",
+    "ignore:.*'enablePackrat' deprecated - use 'enable_packrat'.*:DeprecationWarning",
+    "ignore:.*'escChar' argument is deprecated, use 'esc_char'.*:DeprecationWarning",
+    "ignore:.*'unquoteResults' argument is deprecated, use 'unquote_results'.*:DeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    "**/archive/**",
+    "**/**demo**.py",
+    "**/_version.py",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501", "E402", "E741"]
+exclude = ["docs/**"]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "F841",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

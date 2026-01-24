@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Call Records Visualization</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+            color: #333;
+        }
+
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            margin-bottom: 10px;
+            color: #1a1a1a;
+        }
+
+        .header-controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .file-input-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        input[type="file"] {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+        }
+
+        .info {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .session-group {
+            background: white;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .session-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .session-id {
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            color: #666;
+            word-break: break-all;
+        }
+
+        .session-stats {
+            display: flex;
+            gap: 20px;
+            font-size: 13px;
+            color: #888;
+        }
+
+        .operation {
+            margin-bottom: 30px;
+            padding: 15px;
+            background: #fafafa;
+            border-radius: 6px;
+            border-left: 4px solid #4a90e2;
+        }
+
+        .operation-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .operation-name {
+            font-weight: 600;
+            color: #1a1a1a;
+            font-size: 16px;
+        }
+
+        .operation-meta {
+            display: flex;
+            gap: 15px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .timeline-container {
+            position: relative;
+            margin-top: 10px;
+            min-height: 60px;
+            background: white;
+            border-radius: 4px;
+            padding: 10px;
+            border: 1px solid #e0e0e0;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .time-scale {
+            position: relative;
+            height: 30px;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 10px;
+        }
+
+        .time-marker {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            border-left: 1px solid #ddd;
+            font-size: 10px;
+            color: #999;
+            padding-left: 4px;
+        }
+
+        .time-marker-label {
+            position: absolute;
+            top: 2px;
+            left: 4px;
+            font-size: 10px;
+            color: #999;
+        }
+
+        .calls-container {
+            position: relative;
+            min-height: 40px;
+        }
+
+        .call-bar {
+            position: absolute;
+            height: 24px;
+            margin: 2px 0;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: opacity 0.2s, transform 0.1s;
+            border: 1px solid rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            padding: 0 6px;
+            font-size: 11px;
+            color: white;
+            font-weight: 500;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+
+        .call-bar:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+            z-index: 10;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        .call-bar.provider-openai {
+            background: linear-gradient(135deg, #10a37f 0%, #0d8c6e 100%);
+        }
+
+        .call-bar.provider-gemini {
+            background: linear-gradient(135deg, #4285f4 0%, #3367d6 100%);
+        }
+
+        .call-bar.provider-anthropic {
+            background: linear-gradient(135deg, #d97757 0%, #c46242 100%);
+        }
+
+        .call-bar.provider-mistral {
+            background: linear-gradient(135deg, #ff6b35 0%, #e55a2b 100%);
+        }
+
+        .call-bar.provider-default {
+            background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
+        }
+
+        .call-label {
+            pointer-events: none;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .tooltip {
+            position: fixed;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1000;
+            max-width: 400px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            display: none;
+        }
+
+        .tooltip.show {
+            display: block;
+        }
+
+        .tooltip-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #fff;
+        }
+
+        .tooltip-row {
+            margin: 4px 0;
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+        }
+
+        .tooltip-label {
+            color: #ccc;
+        }
+
+        .tooltip-value {
+            color: #fff;
+            font-weight: 500;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            border-left: 4px solid #c33;
+        }
+
+        .stats-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            background: #e8f4f8;
+            border-radius: 4px;
+            font-size: 11px;
+            color: #2c5f7c;
+        }
+
+        .attempt-group {
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #f9f9f9;
+            border-radius: 4px;
+            border-left: 3px solid #6c757d;
+        }
+
+        .attempt-header {
+            font-size: 12px;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+        }
+
+        .host-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            font-size: 10px;
+            color: #555;
+            margin-left: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>LLM Call Records Visualization</h1>
+        <div class="header-controls">
+            <div class="file-input-wrapper">
+                <label for="jsonFile">Load JSON file:</label>
+                <input type="file" id="jsonFile" accept=".json" />
+            </div>
+            <div class="info" id="fileInfo">No file loaded</div>
+        </div>
+    </div>
+
+    <div id="content"></div>
+    <div id="tooltip" class="tooltip"></div>
+
+    <script>
+        let data = null;
+        const tooltip = document.getElementById('tooltip');
+
+        // Color mapping for providers
+        const providerColors = {
+            'openai': 'provider-openai',
+            'gemini': 'provider-gemini',
+            'anthropic': 'provider-anthropic',
+            'mistral': 'provider-mistral'
+        };
+
+        function getProviderClass(provider) {
+            return providerColors[provider.toLowerCase()] || 'provider-default';
+        }
+
+        function formatDuration(seconds) {
+            if (seconds < 1) return `${(seconds * 1000).toFixed(0)}ms`;
+            if (seconds < 60) return `${seconds.toFixed(2)}s`;
+            const mins = Math.floor(seconds / 60);
+            const secs = (seconds % 60).toFixed(0);
+            return `${mins}m ${secs}s`;
+        }
+
+        function formatTimestamp(isoString) {
+            const dt = new Date(isoString + 'Z'); // Add Z for UTC
+            return dt.toLocaleString();
+        }
+
+        function parseTimestamp(isoString) {
+            if (!isoString) {
+                console.warn('Empty timestamp string');
+                return Date.now();
+            }
+            try {
+                // Handle formats: with Z, with +00:00 offset, or no timezone
+                let date;
+                if (isoString.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(isoString)) {
+                    // Already has timezone info (Z or +00:00 format)
+                    date = new Date(isoString);
+                } else {
+                    // No timezone - assume UTC, add Z
+                    date = new Date(isoString + 'Z');
+                }
+                const timestamp = date.getTime();
+                if (isNaN(timestamp)) {
+                    console.warn('Invalid timestamp:', isoString);
+                    return Date.now();
+                }
+                return timestamp;
+            } catch (error) {
+                console.warn('Error parsing timestamp:', isoString, error);
+                return Date.now();
+            }
+        }
+
+        function normalizeData(rawData) {
+            if (!rawData) {
+                return rawData;
+            }
+
+            if (Array.isArray(rawData.records)) {
+                const records = rawData.records;
+                if (records.length === 0) {
+                    return { ...rawData, operations: [] };
+                }
+
+                let startTime = Infinity;
+                let endTime = -Infinity;
+                records.forEach(call => {
+                    startTime = Math.min(startTime, parseTimestamp(call.started_at));
+                    endTime = Math.max(endTime, parseTimestamp(call.ended_at));
+                });
+
+                if (!isFinite(startTime) || !isFinite(endTime) || endTime <= startTime) {
+                    const now = Date.now();
+                    startTime = now - 1000;
+                    endTime = now;
+                }
+
+                return {
+                    ...rawData,
+                    operations: [
+                        {
+                            dpia_session_id: rawData.session_id || rawData.session || 'local',
+                            operation_name: rawData.operation_name || 'llm_calls',
+                            created_at: new Date(startTime).toISOString(),
+                            duration: (endTime - startTime) / 1000,
+                            succeeded: null,
+                            metrics: {
+                                host: rawData.host,
+                                calls: records
+                            }
+                        }
+                    ],
+                    count: rawData.count || records.length
+                };
+            }
+
+            return rawData;
+        }
+
+        // Normalize calls structure: handle both old format (list) and new format (dict by attempt)
+        function normalizeCalls(metrics) {
+            if (!metrics || !metrics.calls) {
+                return { allCalls: [], attempts: {} };
+            }
+
+            // Check if calls is an array (old format) or object (new format)
+            if (Array.isArray(metrics.calls)) {
+                // Old format: single list of calls
+                return {
+                    allCalls: metrics.calls,
+                    attempts: { 'attempt_1': metrics.calls }
+                };
+            } else if (typeof metrics.calls === 'object') {
+                // New format: dict keyed by attempt number
+                const allCalls = [];
+                const attempts = {};
+                for (const [attemptKey, callsList] of Object.entries(metrics.calls)) {
+                    if (Array.isArray(callsList)) {
+                        attempts[attemptKey] = callsList;
+                        allCalls.push(...callsList);
+                    }
+                }
+                return { allCalls, attempts };
+            }
+
+            return { allCalls: [], attempts: {} };
+        }
+
+        function showTooltip(event, call) {
+            const rect = event.target.getBoundingClientRect();
+            tooltip.innerHTML = `
+                <div class="tooltip-title">${call.model} (${call.provider})</div>
+                <div class="tooltip-row">
+                    <span class="tooltip-label">Duration:</span>
+                    <span class="tooltip-value">${formatDuration(call.duration_seconds)}</span>
+                </div>
+                <div class="tooltip-row">
+                    <span class="tooltip-label">Started:</span>
+                    <span class="tooltip-value">${formatTimestamp(call.started_at)}</span>
+                </div>
+                <div class="tooltip-row">
+                    <span class="tooltip-label">Ended:</span>
+                    <span class="tooltip-value">${formatTimestamp(call.ended_at)}</span>
+                </div>
+                <div class="tooltip-row">
+                    <span class="tooltip-label">Input tokens:</span>
+                    <span class="tooltip-value">${call.tokens_input.toLocaleString()}</span>
+                </div>
+                <div class="tooltip-row">
+                    <span class="tooltip-label">Output tokens:</span>
+                    <span class="tooltip-value">${call.tokens_output.toLocaleString()}</span>
+                </div>
+                <div class="tooltip-row">
+                    <span class="tooltip-label">Cached tokens:</span>
+                    <span class="tooltip-value">${call.tokens_cached.toLocaleString()}</span>
+                </div>
+                <div class="tooltip-row">
+                    <span class="tooltip-label">Total tokens:</span>
+                    <span class="tooltip-value">${call.tokens_total.toLocaleString()}</span>
+                </div>
+                ${call.tpm_retry_wait_seconds > 0 ? `
+                <div class="tooltip-row">
+                    <span class="tooltip-label">TPM wait:</span>
+                    <span class="tooltip-value">${formatDuration(call.tpm_retry_wait_seconds)}</span>
+                </div>
+                ` : ''}
+            `;
+            tooltip.classList.add('show');
+            
+            // Position tooltip
+            const x = event.clientX + 10;
+            const y = event.clientY + 10;
+            tooltip.style.left = `${x}px`;
+            tooltip.style.top = `${y}px`;
+            
+            // Adjust if tooltip goes off screen
+            const tooltipRect = tooltip.getBoundingClientRect();
+            if (tooltipRect.right > window.innerWidth) {
+                tooltip.style.left = `${event.clientX - tooltipRect.width - 10}px`;
+            }
+            if (tooltipRect.bottom > window.innerHeight) {
+                tooltip.style.top = `${event.clientY - tooltipRect.height - 10}px`;
+            }
+        }
+
+        function hideTooltip() {
+            tooltip.classList.remove('show');
+        }
+
+        function formatTimeOnly(timestamp) {
+            const dt = new Date(timestamp);
+            return dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+
+        function createTimeScale(container, startTime, endTime) {
+            const scale = document.createElement('div');
+            scale.className = 'time-scale';
+
+            const duration = endTime - startTime;
+            const numMarkers = 4; // Start, 1/3, 2/3, End
+
+            for (let i = 0; i <= numMarkers; i++) {
+                const time = startTime + (i / numMarkers) * duration;
+                const position = (i / numMarkers) * 100;
+                const marker = document.createElement('div');
+                marker.className = 'time-marker';
+                marker.style.left = `${position}%`;
+                
+                const label = document.createElement('div');
+                label.className = 'time-marker-label';
+                label.textContent = formatTimeOnly(time);
+                marker.appendChild(label);
+                scale.appendChild(marker);
+            }
+
+            container.appendChild(scale);
+        }
+
+        function renderOperation(operation, sessionStartTime, sessionEndTime, sessionDuration) {
+            const opDiv = document.createElement('div');
+            opDiv.className = 'operation';
+
+            const header = document.createElement('div');
+            header.className = 'operation-header';
+
+            const name = document.createElement('div');
+            name.className = 'operation-name';
+            name.textContent = operation.operation_name || 'Unknown Operation';
+
+            const meta = document.createElement('div');
+            meta.className = 'operation-meta';
+            const metaItems = [
+                `Duration: ${formatDuration(operation.duration || 0)}`,
+                `Created: ${formatTimestamp(operation.created_at)}`,
+                operation.succeeded !== null ? (operation.succeeded ? '✓ Success' : '✗ Failed') : 'Pending'
+            ];
+            if (operation.metrics) {
+                const { allCalls } = normalizeCalls(operation.metrics);
+                if (allCalls.length > 0) {
+                    metaItems.push(`${allCalls.length} LLM calls`);
+                }
+                if (operation.metrics.host) {
+                    metaItems.push(`Host: ${operation.metrics.host}`);
+                }
+            }
+            meta.innerHTML = metaItems.join(' • ');
+
+            header.appendChild(name);
+            header.appendChild(meta);
+            opDiv.appendChild(header);
+
+            if (operation.metrics) {
+                const { allCalls, attempts } = normalizeCalls(operation.metrics);
+                
+                if (allCalls.length > 0) {
+                    // Find operation time bounds
+                    let opStartTime = sessionStartTime;
+                    let opEndTime = sessionEndTime;
+                    
+                    if (allCalls.length > 0) {
+                        const callStartTimes = allCalls.map(c => parseTimestamp(c.started_at));
+                        const callEndTimes = allCalls.map(c => parseTimestamp(c.ended_at));
+                        opStartTime = Math.min(...callStartTimes);
+                        opEndTime = Math.max(...callEndTimes);
+                    }
+
+                    const opDuration = opEndTime - opStartTime;
+                    
+                    // Guard against zero duration to prevent division by zero
+                    if (opDuration <= 0) {
+                        // If all calls happen at the same time, use a small default duration
+                        const minDuration = 1000; // 1 second minimum
+                        opEndTime = opStartTime + minDuration;
+                    }
+
+                    // Render each attempt group
+                    const attemptKeys = Object.keys(attempts).sort();
+                    const singleAttempt = attemptKeys.length === 1;
+                    
+                    attemptKeys.forEach(attemptKey => {
+                        const attemptCalls = attempts[attemptKey];
+                        if (attemptCalls.length === 0) return;
+
+                        // For single attempt, render timeline directly without attempt group wrapper
+                        let container;
+                        if (singleAttempt) {
+                            container = opDiv;
+                        } else {
+                            const attemptGroup = document.createElement('div');
+                            attemptGroup.className = 'attempt-group';
+                            const attemptHeader = document.createElement('div');
+                            attemptHeader.className = 'attempt-header';
+                            attemptHeader.textContent = attemptKey.replace('_', ' ').toUpperCase();
+                            attemptGroup.appendChild(attemptHeader);
+                            opDiv.appendChild(attemptGroup);
+                            container = attemptGroup;
+                        }
+
+                        const timelineContainer = document.createElement('div');
+                        timelineContainer.className = 'timeline-container';
+
+                        // Create time scale
+                        createTimeScale(timelineContainer, opStartTime, opEndTime);
+
+                        // Create calls container
+                        const callsContainer = document.createElement('div');
+                        callsContainer.className = 'calls-container';
+                        callsContainer.style.height = `${attemptCalls.length * 28 + 10}px`;
+
+                        const finalOpDuration = opEndTime - opStartTime;
+                        const minWidthPercent = 0.5; // Minimum width for visibility
+                        
+                        attemptCalls.forEach((call, index) => {
+                            const callStart = parseTimestamp(call.started_at);
+                            const callEnd = parseTimestamp(call.ended_at);
+                            const callDuration = Math.max(callEnd - callStart, 1); // Ensure at least 1ms
+
+                            // Calculate position and width relative to operation time window
+                            let left = 0;
+                            let widthPercent = 100;
+                            
+                            if (finalOpDuration > 0) {
+                                // Position: where the call starts relative to operation start
+                                left = Math.max(0, ((callStart - opStartTime) / finalOpDuration) * 100);
+                                // Width: call duration relative to operation duration, but cap at remaining space
+                                widthPercent = Math.min((callDuration / finalOpDuration) * 100, 100 - left);
+                                // Ensure minimum width for visibility
+                                widthPercent = Math.max(widthPercent, minWidthPercent);
+                            }
+
+                            const bar = document.createElement('div');
+                            bar.className = `call-bar ${getProviderClass(call.provider)}`;
+                            bar.style.left = `${left}%`;
+                            bar.style.width = `${widthPercent}%`;
+                            bar.style.top = `${index * 28 + 2}px`;
+
+                            const label = document.createElement('div');
+                            label.className = 'call-label';
+                            label.textContent = `${call.model} (${formatDuration(call.duration_seconds)})`;
+                            bar.appendChild(label);
+
+                            bar.addEventListener('mouseenter', (e) => showTooltip(e, call));
+                            bar.addEventListener('mouseleave', hideTooltip);
+                            bar.addEventListener('mousemove', (e) => {
+                                if (tooltip.classList.contains('show')) {
+                                    showTooltip(e, call);
+                                }
+                            });
+
+                            callsContainer.appendChild(bar);
+                        });
+
+                        timelineContainer.appendChild(callsContainer);
+                        container.appendChild(timelineContainer);
+                    });
+                }
+            }
+
+            return opDiv;
+        }
+
+        function renderSession(sessionId, operations) {
+            const sessionDiv = document.createElement('div');
+            sessionDiv.className = 'session-group';
+
+            const header = document.createElement('div');
+            header.className = 'session-header';
+
+            const idDiv = document.createElement('div');
+            idDiv.className = 'session-id';
+            idDiv.textContent = `Session: ${sessionId}`;
+
+            const stats = document.createElement('div');
+            stats.className = 'session-stats';
+            
+            const totalOps = operations.length;
+            const succeededOps = operations.filter(op => op.succeeded === true).length;
+            const failedOps = operations.filter(op => op.succeeded === false).length;
+            const totalDuration = operations.reduce((sum, op) => sum + (op.duration || 0), 0);
+            const totalCalls = operations.reduce((sum, op) => {
+                if (op.metrics) {
+                    const { allCalls } = normalizeCalls(op.metrics);
+                    return sum + allCalls.length;
+                }
+                return sum;
+            }, 0);
+
+            stats.innerHTML = `
+                <span>${totalOps} operations</span>
+                <span class="stats-badge">${succeededOps} succeeded</span>
+                ${failedOps > 0 ? `<span class="stats-badge" style="background: #fee; color: #c33;">${failedOps} failed</span>` : ''}
+                <span>Total: ${formatDuration(totalDuration)}</span>
+                <span>${totalCalls} LLM calls</span>
+            `;
+
+            header.appendChild(idDiv);
+            header.appendChild(stats);
+            sessionDiv.appendChild(header);
+
+            // Find session time bounds
+            let sessionStartTime = Infinity;
+            let sessionEndTime = -Infinity;
+            let hasCalls = false;
+
+            operations.forEach(op => {
+                if (op.metrics) {
+                    const { allCalls } = normalizeCalls(op.metrics);
+                    if (allCalls.length > 0) {
+                        hasCalls = true;
+                        allCalls.forEach(call => {
+                            const start = parseTimestamp(call.started_at);
+                            const end = parseTimestamp(call.ended_at);
+                            sessionStartTime = Math.min(sessionStartTime, start);
+                            sessionEndTime = Math.max(sessionEndTime, end);
+                        });
+                    }
+                }
+            });
+
+            // If no calls, use created_at times
+            if (!hasCalls || sessionStartTime === Infinity) {
+                operations.forEach(op => {
+                    const created = parseTimestamp(op.created_at);
+                    sessionStartTime = Math.min(sessionStartTime, created);
+                    // Use duration if available, otherwise assume at least 1ms
+                    const opEnd = created + (op.duration ? op.duration * 1000 : 1);
+                    sessionEndTime = Math.max(sessionEndTime, opEnd);
+                });
+            }
+            
+            // Ensure we have valid time bounds
+            if (sessionStartTime === Infinity || sessionEndTime === -Infinity || sessionEndTime <= sessionStartTime) {
+                // Fallback: use current time if all else fails
+                const now = Date.now();
+                sessionStartTime = now - 60000; // 1 minute ago
+                sessionEndTime = now;
+            }
+
+            const sessionDuration = sessionEndTime - sessionStartTime;
+
+            // Sort operations by created_at
+            const sortedOps = [...operations].sort((a, b) => 
+                parseTimestamp(a.created_at) - parseTimestamp(b.created_at)
+            );
+
+            sortedOps.forEach(op => {
+                sessionDiv.appendChild(renderOperation(op, sessionStartTime, sessionEndTime, sessionDuration));
+            });
+
+            return sessionDiv;
+        }
+
+        function render(data) {
+            const content = document.getElementById('content');
+            content.innerHTML = '';
+
+            try {
+                if (!data) {
+                    content.innerHTML = '<div class="empty-state">No data loaded</div>';
+                    return;
+                }
+
+                data = normalizeData(data);
+                
+                if (!data.operations || data.operations.length === 0) {
+                    content.innerHTML = '<div class="empty-state">No operations found</div>';
+                    return;
+                }
+            } catch (error) {
+                content.innerHTML = `<div class="error">Error processing data: ${error.message}</div>`;
+                console.error('Render error:', error);
+                return;
+            }
+
+            // Group operations by session
+            const sessions = {};
+            data.operations.forEach(op => {
+                const sessionId = op.dpia_session_id;
+                if (!sessionId) {
+                    console.warn('Operation missing dpia_session_id:', op);
+                    return; // Skip operations without session ID
+                }
+                if (!sessions[sessionId]) {
+                    sessions[sessionId] = [];
+                }
+                sessions[sessionId].push(op);
+            });
+
+            // Render each session
+            Object.entries(sessions).forEach(([sessionId, operations]) => {
+                try {
+                    content.appendChild(renderSession(sessionId, operations));
+                } catch (error) {
+                    console.error(`Error rendering session ${sessionId}:`, error);
+                    const errorDiv = document.createElement('div');
+                    errorDiv.className = 'error';
+                    errorDiv.textContent = `Error rendering session ${sessionId}: ${error.message}`;
+                    content.appendChild(errorDiv);
+                }
+            });
+
+            // Update file info
+            const fileInfo = document.getElementById('fileInfo');
+            let timeInfo = '';
+            if (data.query_time) {
+                const queryTime = new Date(data.query_time).toLocaleString();
+                if (data.time_back) {
+                    // Parse ISO 8601 duration (e.g., "PT15M" = 15 minutes)
+                    const durationMatch = data.time_back.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+                    let hours = 0;
+                    if (durationMatch) {
+                        hours = (parseInt(durationMatch[1] || 0)) + (parseInt(durationMatch[2] || 0) / 60);
+                    }
+                    timeInfo = `queried ${hours.toFixed(1)} hour(s) back from ${queryTime}`;
+                } else if (data.hours_back) {
+                    timeInfo = `queried ${data.hours_back} hour(s) back from ${queryTime}`;
+                } else {
+                    timeInfo = `queried at ${queryTime}`;
+                }
+            }
+            fileInfo.textContent = `Loaded ${data.count || data.operations.length} operations from ${Object.keys(sessions).length} sessions${timeInfo ? ` (${timeInfo})` : ''}`;
+        }
+
+        // File input handler
+        document.getElementById('jsonFile').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    data = JSON.parse(event.target.result);
+                    render(data);
+                } catch (error) {
+                    const content = document.getElementById('content');
+                    content.innerHTML = `<div class="error">Error parsing JSON: ${error.message}</div>`;
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        // Try to load default file on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            // Try to load the default file path
+            fetch('generated/llm_calls.json')
+                .then(response => {
+                    if (response.ok) {
+                        return response.json();
+                    }
+                    throw new Error('File not found');
+                })
+                .then(jsonData => {
+                    data = jsonData;
+                    render(data);
+                    document.getElementById('fileInfo').textContent = 'Loaded default file: llm_calls.json';
+                })
+                .catch(error => {
+                    // File not found or error - that's OK, user can load manually
+                    console.log('Default file not found, waiting for user to load file');
+                });
+        });
+    </script>
+</body>
+</html>
+
+
