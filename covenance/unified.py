@@ -15,15 +15,24 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pydantic import TypeAdapter, ValidationError
 
 from covenance.clients.anthropic_client import ask_anthropic_structured
-from covenance.clients.anthropic_client import set_rate_limiter_verbose as set_anthropic_verbose
-from .exceptions import StructuredOutputParsingError
+from covenance.clients.anthropic_client import (
+    set_rate_limiter_verbose as set_anthropic_verbose,
+)
 from covenance.clients.google_client import ask_gemini_structured
-from covenance.clients.google_client import set_rate_limiter_verbose as set_gemini_verbose
+from covenance.clients.google_client import (
+    set_rate_limiter_verbose as set_gemini_verbose,
+)
 from covenance.clients.mistral_client import ask_mistral_structured
-from covenance.clients.mistral_client import set_rate_limiter_verbose as set_mistral_verbose
+from covenance.clients.mistral_client import (
+    set_rate_limiter_verbose as set_mistral_verbose,
+)
 from covenance.clients.openai_client import ask_chatgpt_structured
-from covenance.clients.openai_client import set_rate_limiter_verbose as set_openai_verbose
+from covenance.clients.openai_client import (
+    set_rate_limiter_verbose as set_openai_verbose,
+)
 from covenance.clients.openrouter_client import ask_openrouter_structured
+
+from .exceptions import StructuredOutputParsingError
 
 
 def set_rate_limiter_verbose(verbose: bool) -> None:

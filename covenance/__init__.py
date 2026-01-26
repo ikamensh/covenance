@@ -7,20 +7,24 @@ except ImportError:
 
 from covenance.clients.anthropic_client import ClaudeModels, ask_anthropic_structured
 from covenance.clients.google_client import GeminiModels, ask_gemini_structured
-from .record import (
-    get_records,
-    get_llm_call_records_dir,
-    set_llm_call_records_dir,
-)
-from .metrics import (
-    Record,
-    LLMOperationContext,
-    MetricsContext,  # Backwards compat alias
-    record_llm_call,
-)
 from covenance.clients.mistral_client import MistralModels, ask_mistral_structured
 from covenance.clients.openai_client import OpenaiModels, ask_chatgpt_structured
-from covenance.clients.openrouter_client import OpenRouterModels, ask_openrouter_structured
+from covenance.clients.openrouter_client import (
+    OpenRouterModels,
+    ask_openrouter_structured,
+)
+
+from .metrics import (
+    LLMOperationContext,
+    MetricsContext,  # Backwards compat alias
+    Record,
+    record_llm_call,
+)
+from .record import (
+    get_llm_call_records_dir,
+    get_records,
+    set_llm_call_records_dir,
+)
 from .unified import (
     ask_llm,
     llm_consensus,

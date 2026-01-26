@@ -182,7 +182,7 @@ def ask_mistral_structured[T](
 
             # Record to metrics context for DB persistence
             # Duration is calculated from started_at and ended_at timestamps
-            from .metrics import record_llm_call
+            from covenance.metrics import record_llm_call
 
             record_llm_call(
                 model=model,
@@ -319,7 +319,7 @@ def _extract_mistral_usage(response, model: str) -> TokenUsage:
     )
 
     # Record usage in global stats (for Python-side debugging)
-    from .usage import usage_stats
+    from covenance.usage import usage_stats
 
     usage_stats.record_usage(usage, model=model, provider="mistral")
 

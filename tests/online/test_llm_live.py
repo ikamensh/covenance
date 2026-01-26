@@ -36,7 +36,7 @@ def test_online_openai_structured_math(unblock_llm):
         user_msg="Compute 19 + 23. Return the integer result.",
         format=MathResponse,
         sys_msg="You are a precise calculator. Follow the response schema exactly.",
-        model="gpt-5-mini",
+        model="gpt-5-nano",
     )
 
     assert isinstance(result, MathResponse)
@@ -50,7 +50,7 @@ def test_online_gemini_structured_math(unblock_llm):
         user_msg="Compute 19 + 23. Return the integer result.",
         format=MathResponse,
         sys_msg="You are a precise calculator. Follow the response schema exactly.",
-        model="gemini-2.5-flash",
+        model="gemini-2.5-flash-lite",
     )
 
     assert isinstance(result, MathResponse)
@@ -64,7 +64,7 @@ def test_online_openai_consensus_math(unblock_llm):
         user_msg="Compute 19 + 23. Return the integer result.",
         format=MathResponse,
         sys_msg="You are a precise calculator. Follow the response schema exactly.",
-        model="gpt-5-mini",
+        model="gpt-5-nano",
         num_candidates=2,
         parallel=False,
     )

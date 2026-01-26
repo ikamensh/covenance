@@ -11,6 +11,7 @@ from openai import OpenAI
 
 from covenance._lazy_client import LazyClient
 from covenance.keys import get_openrouter_api_key, require_api_key
+
 from .openai_client import ask_openai_compatible_structured
 
 T = TypeVar("T")

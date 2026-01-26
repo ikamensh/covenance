@@ -44,10 +44,10 @@ def pytest_configure(config):
     )
 
     _llm_patches = [
-        patch("covenance.unified.ask_llm_structured", _raise_llm_error),
-        patch("covenance.unified.ask_llm_structured_with_consensus", _raise_llm_error),
-        patch("covenance.ask_llm_structured", _raise_llm_error),
-        patch("covenance.ask_llm_structured_with_consensus", _raise_llm_error),
+        patch("covenance.unified.ask_llm", _raise_llm_error),
+        patch("covenance.unified.llm_consensus", _raise_llm_error),
+        patch("covenance.ask_llm", _raise_llm_error),
+        patch("covenance.llm_consensus", _raise_llm_error),
     ]
     for p in _llm_patches:
         p.start()

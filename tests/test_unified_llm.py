@@ -49,7 +49,7 @@ def test_routes_to_gemini_when_model_starts_with_gemini():
     mock_response.usage_metadata.candidates_token_count = 5
     mock_response.usage_metadata.total_token_count = 15
 
-    with patch("covenance.google_client.client.models.generate_content") as mock_gemini:
+    with patch("covenance.clients.google_client.client.models.generate_content") as mock_gemini:
         mock_gemini.return_value = mock_response
 
         result = covenance.ask_llm(
@@ -81,7 +81,7 @@ def test_routes_to_openai_when_model_does_not_start_with_gemini():
     mock_response.usage.output_tokens = 5
     mock_response.usage.total_tokens = 15
 
-    with patch("covenance.openai_client.client.responses.parse") as mock_openai:
+    with patch("covenance.clients.openai_client.client.responses.parse") as mock_openai:
         mock_openai.return_value = mock_response
 
         result = covenance.ask_llm(
@@ -112,7 +112,7 @@ def test_gemini_without_system_message():
     mock_response.usage_metadata.candidates_token_count = 5
     mock_response.usage_metadata.total_token_count = 15
 
-    with patch("covenance.google_client.client.models.generate_content") as mock_gemini:
+    with patch("covenance.clients.google_client.client.models.generate_content") as mock_gemini:
         mock_gemini.return_value = mock_response
 
         result = covenance.ask_llm(
@@ -135,7 +135,7 @@ def test_openai_without_system_message():
     mock_response.usage.output_tokens = 5
     mock_response.usage.total_tokens = 15
 
-    with patch("covenance.openai_client.client.responses.parse") as mock_openai:
+    with patch("covenance.clients.openai_client.client.responses.parse") as mock_openai:
         mock_openai.return_value = mock_response
 
         result = covenance.ask_llm(
@@ -158,7 +158,7 @@ def test_usage_stats_recorded_for_gemini():
     mock_response.usage_metadata.candidates_token_count = 5
     mock_response.usage_metadata.total_token_count = 15
 
-    with patch("covenance.google_client.client.models.generate_content") as mock_gemini:
+    with patch("covenance.clients.google_client.client.models.generate_content") as mock_gemini:
         mock_gemini.return_value = mock_response
 
         initial_calls = len(usage_stats.get_detailed_records())
@@ -193,7 +193,7 @@ def test_usage_stats_recorded_for_openai():
     mock_response.usage.output_tokens = 10
     mock_response.usage.total_tokens = 30
 
-    with patch("covenance.openai_client.client.responses.parse") as mock_openai:
+    with patch("covenance.clients.openai_client.client.responses.parse") as mock_openai:
         mock_openai.return_value = mock_response
 
         initial_calls = len(usage_stats.get_detailed_records())
@@ -238,8 +238,8 @@ def test_multiple_calls_accumulate_stats():
     mock_openai_response.usage.total_tokens = 30
 
     with (
-        patch("covenance.google_client.client.models.generate_content") as mock_gemini,
-        patch("covenance.openai_client.client.responses.parse") as mock_openai,
+        patch("covenance.clients.google_client.client.models.generate_content") as mock_gemini,
+        patch("covenance.clients.openai_client.client.responses.parse") as mock_openai,
     ):
         mock_gemini.return_value = mock_gemini_response
         mock_openai.return_value = mock_openai_response
@@ -280,7 +280,7 @@ def test_openai_usage_extraction_fallback():
     mock_response.usage.output_tokens = 15
     mock_response.usage.total_tokens = 40
 
-    with patch("covenance.openai_client.client.responses.parse") as mock_openai:
+    with patch("covenance.clients.openai_client.client.responses.parse") as mock_openai:
         mock_openai.return_value = mock_response
 
         result = covenance.ask_llm(
@@ -305,7 +305,7 @@ def test_openai_usage_extraction_raises_when_missing():
     mock_response.output_parsed = SimpleResponse(answer="Paris", confidence=0.95)
     # usage attribute won't exist due to spec, so hasattr will return False
 
-    with patch("covenance.openai_client.client.responses.parse") as mock_openai:
+    with patch("covenance.clients.openai_client.client.responses.parse") as mock_openai:
         mock_openai.return_value = mock_response
 
         with pytest.raises(AttributeError, match="OpenAI response missing usage info"):
@@ -348,24 +348,24 @@ def test_ask_llm_structured_with_consensus_makes_multiple_calls():
             candidate_index += 1
             return result
 
-    with patch("covenance.unified.ask_llm_structured") as mock_ask:
-        mock_ask.side_effect = mock_ask_llm
+        with patch("covenance.unified.ask_llm") as mock_ask:
+            mock_ask.side_effect = mock_ask_llm
 
-        result = covenance.llm_consensus(
-            user_msg="What is the capital of France?",
-            format=SimpleResponse,
-            sys_msg="Answer concisely.",
-            model="gemini-2.5-flash",
-            num_candidates=3,
-            parallel=False,  # Use sequential to avoid race conditions in test
-        )
+            result = covenance.llm_consensus(
+                user_msg="What is the capital of France?",
+                format=SimpleResponse,
+                sys_msg="Answer concisely.",
+                model="gemini-2.5-flash",
+                num_candidates=3,
+                parallel=False,  # Use sequential to avoid race conditions in test
+            )
 
-    assert isinstance(result, SimpleResponse)
-    assert result.answer == "Paris"
-    assert result.confidence == 0.92
-    assert call_count["candidate"] == 3
-    assert call_count["integration"] == 1
-    assert mock_ask.call_count == 4
+            assert isinstance(result, SimpleResponse)
+            assert result.answer == "Paris"
+            assert result.confidence == 0.92
+            assert call_count["candidate"] == 3
+            assert call_count["integration"] == 1
+            assert mock_ask.call_count == 4
 
 
 def test_ask_llm_structured_with_consensus_integration_prompt():
@@ -395,7 +395,7 @@ def test_ask_llm_structured_with_consensus_integration_prompt():
         else:
             return candidate_response
 
-    with patch("covenance.unified.ask_llm_structured") as mock_ask:
+    with patch("covenance.unified.ask_llm") as mock_ask:
         mock_ask.side_effect = mock_ask_llm
 
         covenance.llm_consensus(
@@ -450,7 +450,7 @@ def test_ask_llm_structured_with_consensus_cycles_models():
             )
             return candidate_response
 
-    with patch("covenance.unified.ask_llm_structured") as mock_ask:
+    with patch("covenance.unified.ask_llm") as mock_ask:
         mock_ask.side_effect = mock_ask_llm
 
         covenance.llm_consensus(
@@ -497,7 +497,7 @@ def test_ask_llm_structured_with_consensus_uses_base_model_when_no_additional():
             )
             return candidate_response
 
-    with patch("covenance.unified.ask_llm_structured") as mock_ask:
+    with patch("covenance.unified.ask_llm") as mock_ask:
         mock_ask.side_effect = mock_ask_llm
 
         covenance.llm_consensus(
@@ -540,7 +540,7 @@ def test_ask_llm_structured_with_consensus_empty_additional_models_uses_base():
             )
             return candidate_response
 
-    with patch("covenance.unified.ask_llm_structured") as mock_ask:
+    with patch("covenance.unified.ask_llm") as mock_ask:
         mock_ask.side_effect = mock_ask_llm
 
         covenance.llm_consensus(
@@ -574,7 +574,7 @@ def test_retry_on_parsing_error():
     mock_response_failure.usage_metadata.candidates_token_count = 5
     mock_response_failure.usage_metadata.total_token_count = 15
 
-    with patch("covenance.google_client.client.models.generate_content") as mock_gemini:
+    with patch("covenance.clients.google_client.client.models.generate_content") as mock_gemini:
         # First call fails, second succeeds
         mock_gemini.side_effect = [mock_response_failure, mock_response_success]
 
@@ -599,7 +599,7 @@ def test_retry_exhausted_raises_exception():
     mock_response_failure.usage_metadata.candidates_token_count = 5
     mock_response_failure.usage_metadata.total_token_count = 15
 
-    with patch("covenance.google_client.client.models.generate_content") as mock_gemini:
+    with patch("covenance.clients.google_client.client.models.generate_content") as mock_gemini:
         # All calls fail
         mock_gemini.return_value = mock_response_failure
 
