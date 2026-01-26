@@ -10,6 +10,7 @@ from google.genai.errors import ClientError
 
 from covenance._lazy_client import LazyClient
 from covenance.exceptions import StructuredOutputParsingError
+from covenance.client_context import get_client_override
 from covenance.keys import get_gemini_api_key, require_api_key
 from covenance.usage import TokenUsage
 
@@ -101,7 +102,7 @@ def set_rate_limiter_verbose(verbose: bool) -> None:
     VERBOSE = verbose
 
 
-def ask_gemini_structured[T](
+def ask_gemini[T](
     user_msg: str,
     format: type[T]
     | None = None,  # pydantic model, typing annotation, Literal[…], etc.
@@ -122,6 +123,7 @@ def ask_gemini_structured[T](
         • str                             -> returns plain text
     """
     max_attempts = 100
+    api_client = get_client_override("gemini") or client
     total_tpm_wait = 0.0  # Accumulate TPM retry wait time
     started_at = datetime.now(UTC)  # Record absolute start time
 
@@ -144,7 +146,7 @@ def ask_gemini_structured[T](
                     f"[Gemini Retry] Attempt {attempt + 1}/{max_attempts} for model {model}"
                 )
 
-            response = client.models.generate_content(
+            response = api_client.models.generate_content(
                 model=model,
                 contents=user_msg,  # multi-turn = list[dict]; single string is fine here
                 config=cfg,

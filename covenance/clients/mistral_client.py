@@ -1,6 +1,5 @@
 """Mistral AI client with structured output support and automatic retry."""
 
-import random
 import time
 from datetime import UTC, datetime
 from enum import Enum
@@ -11,7 +10,9 @@ from mistralai.models import HTTPValidationError, SDKError
 
 from covenance._lazy_client import LazyClient
 from covenance.exceptions import StructuredOutputParsingError
+from covenance.client_context import get_client_override
 from covenance.keys import get_mistral_api_key, require_api_key
+from covenance.retry import exponential_backoff
 from covenance.usage import TokenUsage
 
 T = TypeVar("T")
@@ -45,37 +46,6 @@ client = LazyClient(_create_mistral_client, label="mistral")
 
 # Global verbose flag for retry logging
 VERBOSE = False
-
-
-def _calculate_exponential_backoff(
-    attempt: int, base_wait: float = 1.0, max_wait: float = 60.0
-) -> float:
-    """Calculate exponential backoff wait time with jitter.
-
-    Uses exponential backoff: wait = base_wait * (2 ** attempt)
-    Adds jitter to avoid thundering herd problem.
-    Caps at max_wait to prevent excessive delays.
-
-    Args:
-        attempt: Current attempt number (0-indexed)
-        base_wait: Base wait time in seconds (default: 1.0)
-        max_wait: Maximum wait time in seconds (default: 60.0)
-
-    Returns:
-        Wait time in seconds with jitter applied
-    """
-    # Exponential backoff: 1s, 2s, 4s, 8s, 16s, 32s, 60s, 60s, ...
-    exponential_wait = base_wait * (2**attempt)
-
-    # Cap at maximum wait time
-    capped_wait = min(exponential_wait, max_wait)
-
-    # Add jitter: randomize between 50% and 100% of calculated wait time
-    # This helps avoid thundering herd when multiple requests retry simultaneously
-    jitter_factor = 0.5 + (random.random() * 0.5)  # Random value between 0.5 and 1.0
-    wait_time = capped_wait * jitter_factor
-
-    return max(wait_time, 0.1)  # Ensure minimum wait time
 
 
 def _parse_wait_time_from_error(error: Exception) -> float | None:
@@ -117,7 +87,7 @@ def set_rate_limiter_verbose(verbose: bool) -> None:
     VERBOSE = verbose
 
 
-def ask_mistral_structured[T](
+def ask_mistral[T](
     user_msg: str,
     format: type[T] | None = None,
     sys_msg: str | None = None,
@@ -143,6 +113,7 @@ def ask_mistral_structured[T](
         Exception: After max_attempts retries on rate limit errors
     """
     max_attempts = 100
+    api_client = get_client_override("mistral") or client
 
     # Build messages array
     messages = []
@@ -164,13 +135,13 @@ def ask_mistral_structured[T](
 
             if is_plain_text:
                 # Use standard completion for plain text
-                response = client.chat.complete(
+                response = api_client.chat.complete(
                     model=model,
                     messages=messages,
                 )
             else:
                 # Use native structured output via chat.parse
-                response = client.chat.parse(
+                response = api_client.chat.parse(
                     model=model,
                     messages=messages,
                     response_format=format,
@@ -257,7 +228,7 @@ def ask_mistral_structured[T](
                     )
             else:
                 # Use exponential backoff with jitter
-                wait_time = _calculate_exponential_backoff(attempt)
+                wait_time = exponential_backoff(attempt)
                 if VERBOSE:
                     print(
                         f"[Mistral Retry] Rate limit error (attempt {attempt + 1}/{max_attempts}): "
@@ -288,7 +259,7 @@ def ask_mistral_structured[T](
                 wait_time = explicit_wait
             else:
                 # Use exponential backoff
-                wait_time = _calculate_exponential_backoff(attempt)
+                wait_time = exponential_backoff(attempt)
 
             if VERBOSE:
                 print(
@@ -335,7 +306,7 @@ if __name__ == "__main__":
         rating: float
         key_themes: list[str]
 
-    result = ask_mistral_structured(
+    result = ask_mistral(
         user_msg="Review the movie 'Inception' by Christopher Nolan.",
         format=MovieReview,
         model=MistralModels.small.value,

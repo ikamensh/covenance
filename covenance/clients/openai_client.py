@@ -8,6 +8,7 @@ from openai import OpenAI, RateLimitError
 
 from covenance._lazy_client import LazyClient
 from covenance.exceptions import StructuredOutputParsingError
+from covenance.client_context import get_client_override
 from covenance.keys import get_openai_api_key, require_api_key
 from covenance.usage import TokenUsage
 
@@ -115,7 +116,6 @@ def ask_openai_compatible_structured[T](
     total_tpm_wait = 0.0
     started_at = datetime.now(UTC)
     is_plain_text = format is str or format is None
-
     for attempt in range(max_attempts):
         try:
             if VERBOSE and attempt > 0:
@@ -174,15 +174,16 @@ def ask_openai_compatible_structured[T](
             total_tpm_wait += wait_time
 
 
-def ask_chatgpt_structured[T](
+def ask_openai[T](
     user_msg: str,
     format: type[T] | None = None,
     sys_msg: str | None = None,
     model: str = OpenaiModels.gpt5.value,
 ) -> T:
     """Call OpenAI API with automatic retry."""
+    api_client = get_client_override("openai") or client
     return ask_openai_compatible_structured(
-        client=client,
+        client=api_client,
         user_msg=user_msg,
         format=format,
         sys_msg=sys_msg,
@@ -198,7 +199,7 @@ if __name__ == "__main__":
         text: str
         number: int
 
-    out = ask_chatgpt_structured(
+    out = ask_openai(
         "What is the capital?",
         format=Response,
         model="o4-mini",

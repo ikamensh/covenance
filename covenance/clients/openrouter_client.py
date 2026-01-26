@@ -10,6 +10,7 @@ from typing import TypeVar
 from openai import OpenAI
 
 from covenance._lazy_client import LazyClient
+from covenance.client_context import get_client_override
 from covenance.keys import get_openrouter_api_key, require_api_key
 
 from .openai_client import ask_openai_compatible_structured
@@ -49,15 +50,16 @@ class OpenRouterModels(str, Enum):
     gpt_oss_120b = "openai/gpt-oss-120b"
 
 
-def ask_openrouter_structured[T](
+def ask_openrouter[T](
     user_msg: str,
     format: type[T] | None = None,
     sys_msg: str | None = None,
     model: str = OpenRouterModels.nova2_lite_free,
 ) -> T:
     """Call OpenRouter API with automatic retry."""
+    api_client = get_client_override("openrouter") or client
     return ask_openai_compatible_structured(
-        client=client,
+        client=api_client,
         user_msg=user_msg,
         format=format,
         sys_msg=sys_msg,
@@ -75,7 +77,7 @@ if __name__ == "__main__":
         rating: float
         key_themes: list[str]
 
-    result = ask_openrouter_structured(
+    result = ask_openrouter(
         user_msg="Review the movie 'Inception' by Christopher Nolan.",
         format=MovieReview,
         model=OpenRouterModels.deepseek32,

@@ -269,4 +269,4 @@ cython_debug/
 #.idea/
 
 
-solidflow/_version.py
+covenance/_version.py

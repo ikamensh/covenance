@@ -30,30 +30,106 @@ class Record(BaseModel):
     ended_at: str  # ISO 8601 timestamp
 
 
-_records: list[Record] = []
-_lock = Lock()
-_records_dir: Path | None = None
+class RecordStore:
+    """Thread-safe in-memory LLM call log with optional JSONL persistence."""
+
+    def __init__(
+        self,
+        records_dir: str | Path | None = None,
+        *,
+        label: str | None = None,
+        records_filename: str = DEFAULT_RECORDS_FILENAME,
+    ) -> None:
+        self._records: list[Record] = []
+        self._lock = Lock()
+        self._records_dir: Path | None = None
+        self._records_filename = records_filename
+        self.label = label
+        if records_dir is not None:
+            self.set_llm_call_records_dir(records_dir)
+
+    def set_llm_call_records_dir(self, path: str | Path | None) -> None:
+        """Enable or disable persistence of call records to a local folder."""
+        if path is None:
+            self._records_dir = None
+            return
+        self._records_dir = Path(path).expanduser().resolve()
+
+    def get_llm_call_records_dir(self) -> Path | None:
+        """Return the configured directory for local call record persistence."""
+        return self._records_dir
+
+    def get_llm_call_records_path(self) -> Path | None:
+        """Return the JSONL file path for persisted call records, if enabled."""
+        if self._records_dir is None:
+            return None
+        return self._records_dir / self._records_filename
+
+    def record_llm_call(
+        self,
+        *,
+        model: str,
+        provider: str,
+        usage: TokenUsage,
+        started_at: datetime,
+        ended_at: datetime,
+        tpm_retry_wait_seconds: float = 0.0,
+    ) -> Record:
+        """Record a single LLM call in memory and optionally persist it to disk."""
+        duration_seconds = round((ended_at - started_at).total_seconds(), 3)
+        record = Record(
+            model=model,
+            provider=provider,
+            tokens_input=usage.prompt_tokens,
+            tokens_output=usage.completion_tokens,
+            tokens_cached=usage.cached_tokens,
+            tokens_total=usage.total_tokens,
+            duration_seconds=duration_seconds,
+            tpm_retry_wait_seconds=tpm_retry_wait_seconds,
+            started_at=started_at.isoformat(),
+            ended_at=ended_at.isoformat(),
+        )
+        with self._lock:
+            self._records.append(record)
+            self._persist_record(record)
+        return record
+
+    def get_records(self) -> list[Record]:
+        """Return a copy of all call records captured in this process."""
+        with self._lock:
+            return self._records.copy()
+
+    def clear_records(self) -> None:
+        """Clear in-memory call records (does not delete persisted files)."""
+        with self._lock:
+            self._records.clear()
+
+    def _persist_record(self, record: Record) -> None:
+        if self._records_dir is None:
+            return
+        self._records_dir.mkdir(parents=True, exist_ok=True)
+        output_file = self._records_dir / self._records_filename
+        with output_file.open("a", encoding="utf-8") as handle:
+            handle.write(record.model_dump_json())
+            handle.write("\n")
+
+
+_default_store = RecordStore()
 
 
 def set_llm_call_records_dir(path: str | Path | None) -> None:
     """Enable or disable persistence of call records to a local folder."""
-    global _records_dir
-    if path is None:
-        _records_dir = None
-        return
-    _records_dir = Path(path).expanduser().resolve()
+    _default_store.set_llm_call_records_dir(path)
 
 
 def get_llm_call_records_dir() -> Path | None:
     """Return the configured directory for local call record persistence."""
-    return _records_dir
+    return _default_store.get_llm_call_records_dir()
 
 
 def get_llm_call_records_path() -> Path | None:
     """Return the JSONL file path for persisted call records, if enabled."""
-    if _records_dir is None:
-        return None
-    return _records_dir / DEFAULT_RECORDS_FILENAME
+    return _default_store.get_llm_call_records_path()
 
 
 def record_llm_call(
@@ -66,45 +142,29 @@ def record_llm_call(
     tpm_retry_wait_seconds: float = 0.0,
 ) -> Record:
     """Record a single LLM call in memory and optionally persist it to disk."""
-    duration_seconds = round((ended_at - started_at).total_seconds(), 3)
-    record = Record(
+    return _default_store.record_llm_call(
         model=model,
         provider=provider,
-        tokens_input=usage.prompt_tokens,
-        tokens_output=usage.completion_tokens,
-        tokens_cached=usage.cached_tokens,
-        tokens_total=usage.total_tokens,
-        duration_seconds=duration_seconds,
+        usage=usage,
+        started_at=started_at,
+        ended_at=ended_at,
         tpm_retry_wait_seconds=tpm_retry_wait_seconds,
-        started_at=started_at.isoformat(),
-        ended_at=ended_at.isoformat(),
     )
-    with _lock:
-        _records.append(record)
-        _persist_record(record)
-    return record
 
 
 def get_records() -> list[Record]:
     """Return a copy of all call records captured in this process."""
-    with _lock:
-        return _records.copy()
+    return _default_store.get_records()
 
 
 def clear_records() -> None:
     """Clear in-memory call records (does not delete persisted files)."""
-    with _lock:
-        _records.clear()
+    _default_store.clear_records()
 
 
-def _persist_record(record: Record) -> None:
-    if _records_dir is None:
-        return
-    _records_dir.mkdir(parents=True, exist_ok=True)
-    output_file = _records_dir / DEFAULT_RECORDS_FILENAME
-    with output_file.open("a", encoding="utf-8") as handle:
-        handle.write(record.model_dump_json())
-        handle.write("\n")
+def get_default_record_store() -> RecordStore:
+    """Return the shared default record store."""
+    return _default_store
 
 
 from .keys import load_env_if_present

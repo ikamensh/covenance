@@ -14,8 +14,8 @@ from datetime import datetime
 from threading import Lock
 from typing import Any
 
+from .client_context import get_record_store
 from .record import Record
-from .record import record_llm_call as _log_llm_call
 from .usage import TokenUsage
 
 logger = logging.getLogger(__name__)
@@ -99,8 +99,11 @@ class LLMOperationContext:
         ended_at: datetime,
         tpm_retry_wait_seconds: float = 0.0,
     ) -> None:
-        """Record a single LLM call."""
-        record = _log_llm_call(
+        """Record a single LLM call.
+
+        Uses the current instance context to select the record store.
+        """
+        record = get_record_store().record_llm_call(
             model=model,
             provider=provider,
             usage=usage,
@@ -154,7 +157,7 @@ def record_llm_call(
     """
     duration = (ended_at - started_at).total_seconds()
 
-    record = _log_llm_call(
+    record = get_record_store().record_llm_call(
         model=model,
         provider=provider,
         usage=usage,

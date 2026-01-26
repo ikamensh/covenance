@@ -5,13 +5,13 @@ try:
 except ImportError:
     __version__ = "0.0.0"
 
-from covenance.clients.anthropic_client import ClaudeModels, ask_anthropic_structured
-from covenance.clients.google_client import GeminiModels, ask_gemini_structured
-from covenance.clients.mistral_client import MistralModels, ask_mistral_structured
-from covenance.clients.openai_client import OpenaiModels, ask_chatgpt_structured
+from covenance.clients.anthropic_client import ClaudeModels, ask_anthropic
+from covenance.clients.google_client import GeminiModels, ask_gemini
+from covenance.clients.mistral_client import MistralModels, ask_mistral
+from covenance.clients.openai_client import OpenaiModels, ask_openai
 from covenance.clients.openrouter_client import (
     OpenRouterModels,
-    ask_openrouter_structured,
+    ask_openrouter,
 )
 
 from .metrics import (
@@ -20,26 +20,26 @@ from .metrics import (
     Record,
     record_llm_call,
 )
-from .record import (
-    get_llm_call_records_dir,
-    get_records,
-    set_llm_call_records_dir,
-)
-from .unified import (
+from .client import (
+    Covenance,
     ask_llm,
+    get_default_client,
     llm_consensus,
 )
+from .record import get_llm_call_records_dir, get_records, set_llm_call_records_dir
 from .usage import TokenUsage, usage_stats
 
 __all__ = [
     "__version__",
-    "ask_anthropic_structured",
-    "ask_gemini_structured",
-    "ask_chatgpt_structured",
-    "ask_mistral_structured",
-    "ask_openrouter_structured",
+    "ask_anthropic",
+    "ask_gemini",
+    "ask_openai",
+    "ask_mistral",
+    "ask_openrouter",
     "ask_llm",  # Unified wrapper
     "llm_consensus",  # Multi-call with integration
+    "Covenance",
+    "get_default_client",
     "ClaudeModels",
     "GeminiModels",
     "MistralModels",

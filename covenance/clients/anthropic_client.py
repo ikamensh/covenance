@@ -1,6 +1,5 @@
 """Anthropic Claude client with structured output support and automatic retry."""
 
-import random
 import time
 from datetime import UTC, datetime
 from enum import Enum
@@ -11,7 +10,9 @@ from pydantic import BaseModel
 
 from covenance._lazy_client import LazyClient
 from covenance.exceptions import StructuredOutputParsingError
+from covenance.client_context import get_client_override
 from covenance.keys import get_anthropic_api_key, require_api_key
+from covenance.retry import exponential_backoff
 from covenance.usage import TokenUsage
 
 T = TypeVar("T")
@@ -62,36 +63,6 @@ def _pydantic_to_json_schema(model: type[BaseModel]) -> dict:
     return schema
 
 
-def _calculate_exponential_backoff(
-    attempt: int, base_wait: float = 1.0, max_wait: float = 60.0
-) -> float:
-    """Calculate exponential backoff wait time with jitter.
-
-    Uses exponential backoff: wait = base_wait * (2 ** attempt)
-    Adds jitter to avoid thundering herd problem.
-    Caps at max_wait to prevent excessive delays.
-
-    Args:
-        attempt: Current attempt number (0-indexed)
-        base_wait: Base wait time in seconds (default: 1.0)
-        max_wait: Maximum wait time in seconds (default: 60.0)
-
-    Returns:
-        Wait time in seconds with jitter applied
-    """
-    # Exponential backoff: 1s, 2s, 4s, 8s, 16s, 32s, 60s, 60s, ...
-    exponential_wait = base_wait * (2**attempt)
-
-    # Cap at maximum wait time
-    capped_wait = min(exponential_wait, max_wait)
-
-    # Add jitter: randomize between 50% and 100% of calculated wait time
-    jitter_factor = 0.5 + (random.random() * 0.5)
-    wait_time = capped_wait * jitter_factor
-
-    return max(wait_time, 0.1)  # Ensure minimum wait time
-
-
 def _parse_wait_time_from_error(error: Exception) -> float | None:
     """Parse wait time from Anthropic rate limit error message.
 
@@ -130,7 +101,7 @@ def set_rate_limiter_verbose(verbose: bool) -> None:
     VERBOSE = verbose
 
 
-def ask_anthropic_structured[T](
+def ask_anthropic[T](
     user_msg: str,
     format: type[T] | None = None,
     sys_msg: str | None = None,
@@ -157,6 +128,7 @@ def ask_anthropic_structured[T](
         Exception: After max_attempts retries on rate limit errors
     """
     max_attempts = 100
+    api_client = get_client_override("anthropic") or client
 
     # Handle plain text output
     is_plain_text = format is str or format is None
@@ -206,7 +178,7 @@ def ask_anthropic_structured[T](
             if sys_msg is not None:
                 api_kwargs["system"] = sys_msg
 
-            response = client.messages.create(**api_kwargs)
+            response = api_client.messages.create(**api_kwargs)
 
             ended_at = datetime.now(UTC)  # Record absolute end time
             usage = _extract_anthropic_usage(response, model=model)
@@ -286,7 +258,7 @@ def ask_anthropic_structured[T](
                     )
             else:
                 # Use exponential backoff with jitter
-                wait_time = _calculate_exponential_backoff(attempt)
+                wait_time = exponential_backoff(attempt)
                 if VERBOSE:
                     print(
                         f"[Anthropic Retry] Rate limit error (attempt {attempt + 1}/{max_attempts}): "
@@ -322,7 +294,7 @@ def ask_anthropic_structured[T](
             if explicit_wait is not None:
                 wait_time = explicit_wait
             else:
-                wait_time = _calculate_exponential_backoff(attempt)
+                wait_time = exponential_backoff(attempt)
 
             if VERBOSE:
                 print(
@@ -346,7 +318,7 @@ def ask_anthropic_structured[T](
                 raise
 
             # Use exponential backoff
-            wait_time = _calculate_exponential_backoff(attempt)
+            wait_time = exponential_backoff(attempt)
 
             if VERBOSE:
                 print(
@@ -395,7 +367,7 @@ if __name__ == "__main__":
         rating: float
         key_themes: list[str]
 
-    result = ask_anthropic_structured(
+    result = ask_anthropic(
         user_msg="Review the movie 'Inception' by Christopher Nolan.",
         format=MovieReview,
         model=ClaudeModels.haiku,

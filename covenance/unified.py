@@ -1,4 +1,4 @@
-"""Unified wrapper for OpenAI, Google Gemini, Mistral, Anthropic Claude, and OpenRouter models.
+"""Unified routing implementation for OpenAI, Gemini, Mistral, Anthropic, OpenRouter.
 
 This module provides a single interface that routes to the appropriate API
 based on model name:
@@ -7,6 +7,8 @@ based on model name:
 - Claude models start with "claude" → Anthropic API
 - OpenRouter models contain "/" (format: provider/model-name)
 - All others route to OpenAI
+
+Public API is exposed via `covenance.instance` which binds instance context.
 """
 
 import json
@@ -14,23 +16,23 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from pydantic import TypeAdapter, ValidationError
 
-from covenance.clients.anthropic_client import ask_anthropic_structured
+from covenance.clients.anthropic_client import ask_anthropic
 from covenance.clients.anthropic_client import (
     set_rate_limiter_verbose as set_anthropic_verbose,
 )
-from covenance.clients.google_client import ask_gemini_structured
+from covenance.clients.google_client import ask_gemini
 from covenance.clients.google_client import (
     set_rate_limiter_verbose as set_gemini_verbose,
 )
-from covenance.clients.mistral_client import ask_mistral_structured
+from covenance.clients.mistral_client import ask_mistral
 from covenance.clients.mistral_client import (
     set_rate_limiter_verbose as set_mistral_verbose,
 )
-from covenance.clients.openai_client import ask_chatgpt_structured
+from covenance.clients.openai_client import ask_openai
 from covenance.clients.openai_client import (
     set_rate_limiter_verbose as set_openai_verbose,
 )
-from covenance.clients.openrouter_client import ask_openrouter_structured
+from covenance.clients.openrouter_client import ask_openrouter
 
 from .exceptions import StructuredOutputParsingError
 
@@ -82,22 +84,20 @@ def ask_llm[T](
         - Automatically retries on StructuredOutputParsingError up to max_parsing_retries times
     """
 
-    max_attempts = (
-        max_parsing_retries + 1
-    )  # Total attempts = retries + 1 initial attempt
+    max_attempts = max_parsing_retries + 1  # Total attempts = retries + 1 initial attempt
 
     # Route based on model name
     if model.startswith("gemini"):
-        llm_fn = ask_gemini_structured
+        llm_fn = ask_gemini
     elif model.startswith(("mistral", "ministral", "codestral")):
-        llm_fn = ask_mistral_structured
+        llm_fn = ask_mistral
     elif model.startswith("claude"):
-        llm_fn = ask_anthropic_structured
+        llm_fn = ask_anthropic
     elif "/" in model:
         # OpenRouter models use format: provider/model-name
-        llm_fn = ask_openrouter_structured
+        llm_fn = ask_openrouter
     else:
-        llm_fn = ask_chatgpt_structured
+        llm_fn = ask_openai
 
     for attempt in range(max_attempts):
         try:
@@ -137,7 +137,7 @@ def llm_consensus[T](
     """
     Make multiple LLM calls and integrate the results using an orchestrator LLM.
 
-    This function makes multiple parallel calls to `ask_llm_structured` with the same
+    This function makes multiple parallel calls to `ask_llm` with the same
     parameters, then uses an LLM orchestrator to integrate the candidate answers into
     a final result.
 
@@ -188,13 +188,17 @@ def llm_consensus[T](
     # Get current LLM operation context to propagate to worker threads
     # Context variables don't automatically propagate to ThreadPoolExecutor threads
     from .metrics import LLMOperationContext
+    from .client_context import snapshot as snapshot_instance_context
+    from .client_context import restore as restore_instance_context
 
     current_context = LLMOperationContext.current()
+    current_instance_context = snapshot_instance_context()
 
     # Make multiple candidate calls
     def make_candidate_call(call_index: int) -> T:
         # Propagate context to this thread
         LLMOperationContext.set_current(current_context)
+        restore_instance_context(current_instance_context)
 
         # Cycle through worker models
         worker_model = worker_models[call_index % len(worker_models)]
