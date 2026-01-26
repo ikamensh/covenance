@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from covenance.llm_calls import (
+from covenance.record import (
     Record,
     get_llm_call_records_path,
     set_llm_call_records_dir,

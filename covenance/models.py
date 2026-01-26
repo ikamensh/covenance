@@ -10,11 +10,11 @@ in sync when new models are added.
 
 from typing import Literal
 
-from .anthropic_client import ClaudeModels
-from .google_client import GeminiModels
-from .mistral_client import MistralModels
-from .openai_client import OpenaiModels as OpenAIModels
-from .openrouter_client import OpenRouterModels
+from covenance.clients.anthropic_client import ClaudeModels
+from covenance.clients.google_client import GeminiModels
+from covenance.clients.mistral_client import MistralModels
+from covenance.clients.openai_client import OpenaiModels as OpenAIModels
+from covenance.clients.openrouter_client import OpenRouterModels
 
 
 def _create_llm_model_name_literal() -> type:

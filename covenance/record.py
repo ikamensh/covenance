@@ -10,7 +10,6 @@ from threading import Lock
 from pydantic import BaseModel
 
 from .usage import TokenUsage
-
 DEFAULT_RECORDS_FILENAME = "llm_call_records.jsonl"
 RECORDS_DIR_ENV = "COVENANCE_RECORDS_DIR"
 

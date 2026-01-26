@@ -5,9 +5,9 @@ try:
 except ImportError:
     __version__ = "0.0.0"
 
-from .anthropic_client import ClaudeModels, ask_anthropic_structured
-from .google_client import GeminiModels, ask_gemini_structured
-from .llm_calls import (
+from covenance.clients.anthropic_client import ClaudeModels, ask_anthropic_structured
+from covenance.clients.google_client import GeminiModels, ask_gemini_structured
+from .record import (
     get_records,
     get_llm_call_records_dir,
     set_llm_call_records_dir,
@@ -18,9 +18,9 @@ from .metrics import (
     MetricsContext,  # Backwards compat alias
     record_llm_call,
 )
-from .mistral_client import MistralModels, ask_mistral_structured
-from .openai_client import OpenaiModels, ask_chatgpt_structured
-from .openrouter_client import OpenRouterModels, ask_openrouter_structured
+from covenance.clients.mistral_client import MistralModels, ask_mistral_structured
+from covenance.clients.openai_client import OpenaiModels, ask_chatgpt_structured
+from covenance.clients.openrouter_client import OpenRouterModels, ask_openrouter_structured
 from .unified import (
     ask_llm,
     llm_consensus,

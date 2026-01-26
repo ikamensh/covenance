@@ -14,8 +14,8 @@ from datetime import datetime
 from threading import Lock
 from typing import Any
 
-from .llm_calls import Record
-from .llm_calls import record_llm_call as _log_llm_call
+from .record import Record
+from .record import record_llm_call as _log_llm_call
 from .usage import TokenUsage
 
 logger = logging.getLogger(__name__)

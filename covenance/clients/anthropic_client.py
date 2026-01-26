@@ -9,10 +9,10 @@ from typing import TypeVar
 from anthropic import Anthropic, APIError, RateLimitError
 from pydantic import BaseModel
 
-from ._lazy_client import LazyClient
-from .exceptions import StructuredOutputParsingError
-from .keys import get_anthropic_api_key, require_api_key
-from .usage import TokenUsage
+from covenance._lazy_client import LazyClient
+from covenance.exceptions import StructuredOutputParsingError
+from covenance.keys import get_anthropic_api_key, require_api_key
+from covenance.usage import TokenUsage
 
 T = TypeVar("T")
 
