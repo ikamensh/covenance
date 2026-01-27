@@ -156,7 +156,7 @@ def ask_mistral[T](
             ended_at = datetime.now(UTC)  # Record absolute end time
             usage = _extract_mistral_usage(response, model=model)
 
-            from covenance.metrics import record_llm_call
+            from covenance.record import record_llm_call
 
             record_llm_call(
                 model=model,
@@ -292,11 +292,6 @@ def _extract_mistral_usage(response, model: str) -> TokenUsage:
         total_tokens=usage_obj.total_tokens,
         cached_tokens=0,
     )
-
-    # Record usage in global stats (for Python-side debugging)
-    from covenance.usage import usage_stats
-
-    usage_stats.record_usage(usage, model=model, provider="mistral")
 
     return usage
 

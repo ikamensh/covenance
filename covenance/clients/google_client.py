@@ -159,7 +159,7 @@ def ask_gemini[T](
             ended_at = datetime.now(UTC)  # Record absolute end time
             usage = _extract_gemini_usage(response, model=model)
 
-            from covenance.metrics import record_llm_call
+            from covenance.record import record_llm_call
 
             record_llm_call(
                 model=model,
@@ -254,10 +254,5 @@ def _extract_gemini_usage(response, model: str) -> TokenUsage:
         total_tokens=usage_metadata.total_token_count,
         cached_tokens=usage_metadata.cached_content_token_count or 0,
     )
-
-    # Record usage in global stats (for Python-side debugging)
-    from covenance.usage import usage_stats
-
-    usage_stats.record_usage(usage, model=model, provider="gemini")
 
     return usage

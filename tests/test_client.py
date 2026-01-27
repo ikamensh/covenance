@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 from covenance import Covenance, get_default_client
-from covenance.metrics import record_llm_call
+from covenance.record import record_llm_call
 from covenance.record import clear_records, get_records
 from covenance.usage import TokenUsage
 
@@ -43,7 +43,8 @@ def test_instance_records_are_isolated():
     client = Covenance(label="isolation-test")
     started_at, ended_at = _make_timestamps(1.1)
 
-    client.record_llm_call(
+    # Record to the client's store via metrics.record_llm_call
+    record_llm_call(
         model="gemini-2.5-flash",
         provider="gemini",
         usage=TokenUsage(
@@ -54,6 +55,7 @@ def test_instance_records_are_isolated():
         ),
         started_at=started_at,
         ended_at=ended_at,
+        record_store=client.get_record_store(),
     )
 
     assert len(client.get_records()) == 1

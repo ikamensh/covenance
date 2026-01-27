@@ -4,7 +4,6 @@ import pytest
 from pydantic import BaseModel
 
 import covenance
-from covenance.usage import usage_stats
 
 pytestmark = pytest.mark.online
 
@@ -16,17 +15,17 @@ class MathResponse(BaseModel):
 
 
 @pytest.fixture(autouse=True)
-def reset_usage_stats():
-    """Reset usage stats before and after each test."""
-    usage_stats.reset()
+def reset_records():
+    """Reset records before and after each test."""
+    covenance.clear_records()
     yield
-    usage_stats.reset()
+    covenance.clear_records()
 
 
 def _assert_usage(provider: str, min_calls: int) -> None:
-    records = usage_stats.get_detailed_records()
+    records = covenance.get_records()
     assert len(records) >= min_calls
-    providers = {record["provider"] for record in records}
+    providers = {record.provider for record in records}
     assert providers == {provider}
 
 

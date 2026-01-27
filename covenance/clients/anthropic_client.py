@@ -188,7 +188,7 @@ def ask_anthropic[T](
             ended_at = datetime.now(UTC)  # Record absolute end time
             usage = _extract_anthropic_usage(response, model=model)
 
-            from covenance.metrics import record_llm_call
+            from covenance.record import record_llm_call
 
             record_llm_call(
                 model=model,
@@ -353,11 +353,6 @@ def _extract_anthropic_usage(response, model: str) -> TokenUsage:
         total_tokens=usage_obj.input_tokens + usage_obj.output_tokens,
         cached_tokens=cached_tokens,
     )
-
-    # Record usage in global stats (for Python-side debugging)
-    from covenance.usage import usage_stats
-
-    usage_stats.record_usage(usage, model=model, provider="anthropic")
 
     return usage
 

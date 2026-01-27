@@ -99,9 +99,6 @@ def _extract_openai_compatible_usage(
         cached_tokens=cached_tokens or 0,
     )
 
-    from covenance.usage import usage_stats
-
-    usage_stats.record_usage(usage, model=model, provider=provider)
     return usage
 
 
@@ -147,7 +144,7 @@ def ask_openai_compatible_structured[T](
                 response, model=model, provider=provider
             )
 
-            from covenance.metrics import record_llm_call
+            from covenance.record import record_llm_call
 
             record_llm_call(
                 model=model,

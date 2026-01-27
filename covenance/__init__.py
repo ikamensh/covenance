@@ -19,7 +19,7 @@ from .record import (
     get_records,
     set_llm_call_records_dir,
 )
-from .usage import TokenUsage, usage_stats
+from .usage import TokenUsage
 
 __all__ = [
     "__version__",
@@ -29,7 +29,6 @@ __all__ = [
     "get_default_client",
     "set_rate_limiter_verbose",
     "TokenUsage",
-    "usage_stats",
     # Call records
     "Record",
     "get_records",

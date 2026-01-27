@@ -9,10 +9,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import BaseModel
 
-# Import the covenance module - tests use covenance.ask_llm_structured directly
+# Import the covenance module - tests use covenance.ask_llm directly
 import covenance
 from covenance.exceptions import StructuredOutputParsingError
-from covenance.usage import usage_stats
 
 
 class SimpleResponse(BaseModel):
@@ -27,17 +26,9 @@ def unblock_llm_for_module(unblock_llm):
     """Apply unblock_llm to all tests in this module.
 
     The unblock_llm fixture has already restored the functions in covenance module.
-    Tests use covenance.ask_llm_structured directly.
+    Tests use covenance.ask_llm directly.
     """
     yield
-
-
-@pytest.fixture(autouse=True)
-def reset_usage_stats():
-    """Reset usage stats before each test."""
-    usage_stats.reset()
-    yield
-    usage_stats.reset()
 
 
 def test_routes_to_gemini_when_model_starts_with_gemini():
@@ -149,128 +140,6 @@ def test_openai_without_system_message():
     assert call_kwargs["instructions"] is None
 
 
-def test_usage_stats_recorded_for_gemini():
-    """Property test: verifies usage statistics are recorded correctly for Gemini calls."""
-    mock_response = MagicMock()
-    mock_response.parsed = SimpleResponse(answer="Paris", confidence=0.95)
-    mock_response.usage_metadata = MagicMock()
-    mock_response.usage_metadata.prompt_token_count = 10
-    mock_response.usage_metadata.candidates_token_count = 5
-    mock_response.usage_metadata.total_token_count = 15
-
-    with patch("covenance.clients.google_client.client.models.generate_content") as mock_gemini:
-        mock_gemini.return_value = mock_response
-
-        initial_calls = len(usage_stats.get_detailed_records())
-
-        covenance.ask_llm(
-            user_msg="What is the capital of France?",
-            format=SimpleResponse,
-            model="gemini-2.5-flash",
-        )
-
-    records = usage_stats.get_detailed_records()
-    assert len(records) == initial_calls + 1
-
-    last_record = records[-1]
-    assert last_record["model"] == "gemini-2.5-flash"
-    assert last_record["provider"] == "gemini"
-    assert last_record["usage"].total_tokens == 15
-    assert last_record["usage"].prompt_tokens == 10
-    assert last_record["usage"].completion_tokens == 5
-
-    summary = usage_stats.get_summary()
-    assert summary["by_model"]["gemini-2.5-flash"] == 15
-    assert summary["by_provider"]["gemini"] == 15
-
-
-def test_usage_stats_recorded_for_openai():
-    """Property test: verifies usage statistics are recorded correctly for OpenAI calls."""
-    mock_response = MagicMock()
-    mock_response.output_parsed = SimpleResponse(answer="Paris", confidence=0.95)
-    mock_response.usage = MagicMock()
-    mock_response.usage.input_tokens = 20
-    mock_response.usage.output_tokens = 10
-    mock_response.usage.total_tokens = 30
-
-    with patch("covenance.clients.openai_client.client.responses.parse") as mock_openai:
-        mock_openai.return_value = mock_response
-
-        initial_calls = len(usage_stats.get_detailed_records())
-
-        covenance.ask_llm(
-            user_msg="What is the capital of France?",
-            format=SimpleResponse,
-            model="gpt-4o",
-        )
-
-    records = usage_stats.get_detailed_records()
-    assert len(records) == initial_calls + 1
-
-    last_record = records[-1]
-    assert last_record["model"] == "gpt-4o"
-    assert last_record["provider"] == "openai"
-    assert last_record["usage"].total_tokens == 30
-    assert last_record["usage"].prompt_tokens == 20
-    assert last_record["usage"].completion_tokens == 10
-
-    summary = usage_stats.get_summary()
-    assert summary["by_model"]["gpt-4o"] == 30
-    assert summary["by_provider"]["openai"] == 30
-
-
-def test_multiple_calls_accumulate_stats():
-    """Property test: verifies usage statistics accumulate correctly across multiple calls and providers."""
-    mock_gemini_response = MagicMock()
-    mock_gemini_response.parsed = SimpleResponse(answer="Paris", confidence=0.95)
-    mock_gemini_response.usage_metadata = MagicMock()
-    mock_gemini_response.usage_metadata.prompt_token_count = 10
-    mock_gemini_response.usage_metadata.candidates_token_count = 5
-    mock_gemini_response.usage_metadata.total_token_count = 15
-
-    mock_openai_response = MagicMock()
-    mock_openai_response.output_parsed = SimpleResponse(
-        answer="London", confidence=0.90
-    )
-    mock_openai_response.usage = MagicMock()
-    mock_openai_response.usage.input_tokens = 20
-    mock_openai_response.usage.output_tokens = 10
-    mock_openai_response.usage.total_tokens = 30
-
-    with (
-        patch("covenance.clients.google_client.client.models.generate_content") as mock_gemini,
-        patch("covenance.clients.openai_client.client.responses.parse") as mock_openai,
-    ):
-        mock_gemini.return_value = mock_gemini_response
-        mock_openai.return_value = mock_openai_response
-
-        covenance.ask_llm(
-            user_msg="Question 1",
-            format=SimpleResponse,
-            model="gemini-2.5-flash",
-        )
-
-        covenance.ask_llm(
-            user_msg="Question 2",
-            format=SimpleResponse,
-            model="gpt-4o",
-        )
-
-        covenance.ask_llm(
-            user_msg="Question 3",
-            format=SimpleResponse,
-            model="gemini-2.5-flash",
-        )
-
-    summary = usage_stats.get_summary()
-    assert summary["total_tokens"] == 60  # 15 + 30 + 15
-    assert summary["by_provider"]["gemini"] == 30  # 15 + 15
-    assert summary["by_provider"]["openai"] == 30
-    assert summary["by_model"]["gemini-2.5-flash"] == 30
-    assert summary["by_model"]["gpt-4o"] == 30
-    assert summary["num_calls"] == 3
-
-
 def test_openai_usage_extraction_fallback():
     """Form test: verifies OpenAI usage extraction works with usage object."""
     mock_response = MagicMock()
@@ -280,6 +149,8 @@ def test_openai_usage_extraction_fallback():
     mock_response.usage.output_tokens = 15
     mock_response.usage.total_tokens = 40
 
+    covenance.clear_records()
+    
     with patch("covenance.clients.openai_client.client.responses.parse") as mock_openai:
         mock_openai.return_value = mock_response
 
@@ -290,8 +161,8 @@ def test_openai_usage_extraction_fallback():
         )
 
     assert isinstance(result, SimpleResponse)
-    records = usage_stats.get_detailed_records()
-    assert records[-1]["usage"].total_tokens == 40
+    records = covenance.get_records()
+    assert records[-1].tokens_total == 40
 
 
 def test_openai_usage_extraction_raises_when_missing():

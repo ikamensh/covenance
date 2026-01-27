@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +12,8 @@ from threading import Lock
 from pydantic import BaseModel
 
 from .usage import TokenUsage
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_RECORDS_FILENAME = "llm_call_records.jsonl"
 RECORDS_DIR_ENV = "COVENANCE_RECORDS_DIR"
@@ -28,6 +32,10 @@ class Record(BaseModel):
     tpm_retry_wait_seconds: float = 0.0
     started_at: str  # ISO 8601 timestamp
     ended_at: str  # ISO 8601 timestamp
+    # Caller info (best-effort, for debugging)
+    caller_function: str | None = None
+    caller_file: str | None = None
+    caller_line: int | None = None
 
 
 class RecordStore:
@@ -74,6 +82,9 @@ class RecordStore:
         started_at: datetime,
         ended_at: datetime,
         tpm_retry_wait_seconds: float = 0.0,
+        caller_function: str | None = None,
+        caller_file: str | None = None,
+        caller_line: int | None = None,
     ) -> Record:
         """Record a single LLM call in memory and optionally persist it to disk."""
         duration_seconds = round((ended_at - started_at).total_seconds(), 3)
@@ -88,6 +99,9 @@ class RecordStore:
             tpm_retry_wait_seconds=tpm_retry_wait_seconds,
             started_at=started_at.isoformat(),
             ended_at=ended_at.isoformat(),
+            caller_function=caller_function,
+            caller_file=caller_file,
+            caller_line=caller_line,
         )
         with self._lock:
             self._records.append(record)
@@ -143,26 +157,6 @@ def get_llm_call_records_path() -> Path | None:
     return _default_client().get_llm_call_records_path()
 
 
-def record_llm_call(
-    *,
-    model: str,
-    provider: str,
-    usage: TokenUsage,
-    started_at: datetime,
-    ended_at: datetime,
-    tpm_retry_wait_seconds: float = 0.0,
-) -> Record:
-    """Record a single LLM call in memory and optionally persist it to disk."""
-    return _default_client().get_record_store().record_llm_call(
-        model=model,
-        provider=provider,
-        usage=usage,
-        started_at=started_at,
-        ended_at=ended_at,
-        tpm_retry_wait_seconds=tpm_retry_wait_seconds,
-    )
-
-
 def get_records() -> list[Record]:
     """Return a copy of all call records captured in this process."""
     return _default_client().get_records()
@@ -171,4 +165,52 @@ def get_records() -> list[Record]:
 def clear_records() -> None:
     """Clear in-memory call records (does not delete persisted files)."""
     _default_client().clear_records()
+
+
+def _get_caller_info(skip_frames: int = 4) -> tuple[str | None, str | None, int | None]:
+    """Extract caller info from the call stack.
+    
+    Returns (function_name, filename, lineno) of the caller.
+    Best-effort: returns (None, None, None) if stack is too short.
+    """
+    stack = inspect.stack()
+    if len(stack) > skip_frames:
+        frame = stack[skip_frames]
+        filepath = Path(frame.filename)
+        return frame.function, filepath.name, frame.lineno
+    return None, None, None
+
+
+def record_llm_call(
+    *,
+    model: str,
+    provider: str,
+    usage: TokenUsage,
+    started_at: datetime,
+    ended_at: datetime,
+    tpm_retry_wait_seconds: float = 0.0,
+    record_store: RecordStore | None = None,
+) -> None:
+    """Record an LLM call to the given store (or default) and log it."""
+    duration = (ended_at - started_at).total_seconds()
+    store = record_store or _default_client().get_record_store()
+    
+    caller_function, caller_file, caller_line = _get_caller_info()
+
+    store.record_llm_call(
+        model=model,
+        provider=provider,
+        usage=usage,
+        started_at=started_at,
+        ended_at=ended_at,
+        tpm_retry_wait_seconds=tpm_retry_wait_seconds,
+        caller_function=caller_function,
+        caller_file=caller_file,
+        caller_line=caller_line,
+    )
+    logger.info(
+        f"LLM call {provider}/{model} "
+        f"tokens={usage.total_tokens} (in={usage.prompt_tokens}, out={usage.completion_tokens}, cached={usage.cached_tokens}) "
+        f"duration={duration:.2f}s"
+    )
 

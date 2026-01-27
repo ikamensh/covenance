@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from covenance.metrics import record_llm_call
+from covenance.record import record_llm_call
 from covenance.record import (
     Record,
     clear_records,
