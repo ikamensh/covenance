@@ -11,8 +11,6 @@ from threading import Lock
 
 from pydantic import BaseModel
 
-from .usage import TokenUsage
-
 logger = logging.getLogger(__name__)
 
 DEFAULT_RECORDS_FILENAME = "llm_call_records.jsonl"
@@ -179,6 +177,15 @@ def _get_caller_info(skip_frames: int = 4) -> tuple[str | None, str | None, int 
         filepath = Path(frame.filename)
         return frame.function, filepath.name, frame.lineno
     return None, None, None
+
+
+class TokenUsage(BaseModel):
+    """Standardized token usage information."""
+
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    cached_tokens: int = 0  # Tokens read from cache (provider-specific support)
 
 
 def record_llm_call(

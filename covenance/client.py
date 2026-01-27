@@ -28,7 +28,7 @@ from .keys import (
     require_api_key,
 )
 from .record import Record, RecordStore, get_env_records_dir
-from .usage import TokenUsage
+from covenance import TokenUsage
 
 
 def set_rate_limiter_verbose(verbose: bool) -> None:

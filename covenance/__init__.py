@@ -19,7 +19,7 @@ from .record import (
     get_records,
     set_llm_call_records_dir,
 )
-from .usage import TokenUsage
+from covenance.record import TokenUsage
 
 __all__ = [
     "__version__",
@@ -28,7 +28,6 @@ __all__ = [
     "Covenance",
     "get_default_client",
     "set_rate_limiter_verbose",
-    "TokenUsage",
     # Call records
     "Record",
     "get_records",

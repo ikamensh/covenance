@@ -10,7 +10,7 @@ from covenance.record import (
     get_records,
     set_llm_call_records_dir,
 )
-from covenance.usage import TokenUsage
+from covenance import TokenUsage
 
 
 def _make_timestamps(duration_seconds: float) -> tuple[datetime, datetime]:

@@ -11,7 +11,7 @@ from google.genai.errors import ClientError
 from covenance._lazy_client import LazyClient
 from covenance.exceptions import StructuredOutputParsingError
 from covenance.keys import get_gemini_api_key, require_api_key
-from covenance.usage import TokenUsage
+from covenance import TokenUsage
 
 if TYPE_CHECKING:
     from covenance.record import RecordStore
