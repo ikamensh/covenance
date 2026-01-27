@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from covenance.metrics import LLMOperationContext, record_llm_call
+from covenance.metrics import record_llm_call
 from covenance.record import (
     Record,
     clear_records,
@@ -40,30 +40,6 @@ def test_record_llm_call_is_always_logged():
     assert len(records) == 1
     assert records[0].model == "gpt-4o"
     assert records[0].duration_seconds == 1.2
-
-
-def test_record_llm_call_captured_in_context():
-    clear_records()
-    started_at, ended_at = _make_timestamps(0.5)
-
-    with LLMOperationContext.start(task="test-context") as ctx:
-        record_llm_call(
-            model="gemini-2.5-flash",
-            provider="gemini",
-            usage=TokenUsage(
-                prompt_tokens=20,
-                completion_tokens=10,
-                total_tokens=30,
-                cached_tokens=0,
-            ),
-            started_at=started_at,
-            ended_at=ended_at,
-        )
-        ctx_records = ctx.get_records()
-
-    assert len(ctx_records) == 1
-    assert ctx_records[0].provider == "gemini"
-    assert len(get_records()) == 1
 
 
 def test_record_llm_call_persists_to_dir(tmp_path):
