@@ -27,6 +27,7 @@ from covenance import Covenance
 client = Covenance(
     label="risk-review",
     openai_api_key="sk-...",
+    records_dir="/tmp/my_records",  # optional: persist to JSONL
 )
 result = client.ask_llm("Summarize", model="gpt-5")
 records = client.get_records()

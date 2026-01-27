@@ -47,6 +47,7 @@ dev = [
     "pytest-cov",
     "twine",
     "ruff",
+    "pytest-xdist",
 ]
 
 [tool.hatch.version]

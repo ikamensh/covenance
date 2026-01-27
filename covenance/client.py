@@ -14,9 +14,10 @@ from anthropic import Anthropic
 from google import genai
 from mistralai import Mistral
 from openai import OpenAI
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from ._lazy_client import LazyClient
+from .response_adapter import ResponseTypeAdapter
 from .clients.openrouter_client import OPENROUTER_BASE_URL
 from .exceptions import StructuredOutputParsingError
 from .keys import (
@@ -28,7 +29,7 @@ from .keys import (
     require_api_key,
 )
 from .record import Record, RecordStore, get_env_records_dir
-from covenance import TokenUsage
+from covenance.record import TokenUsage
 
 
 def set_rate_limiter_verbose(verbose: bool) -> None:
@@ -164,7 +165,7 @@ class Covenance:
         self,
         user_msg: str,
         model: str,
-        format: type[T] | None = None,
+        response_type: type[T] | None = None,
         sys_msg: str | None = None,
         *,
         max_parsing_retries: int = 2,
@@ -174,7 +175,10 @@ class Covenance:
         Args:
             user_msg: User message/prompt
             model: Model name - determines provider routing
-            format: Type schema for structured output (Pydantic model, etc.)
+            response_type: Type for structured output. Can be:
+                - None or str: returns plain text
+                - Pydantic model: returns model instance
+                - list[X], tuple[...], etc.: wraps in Pydantic, then unwraps
             sys_msg: Optional system message
             max_parsing_retries: Retries for structured output parsing errors
         """
@@ -197,24 +201,29 @@ class Covenance:
             "openai": ask_openai,
         }[provider]
 
+        # Adapt response_type for LLM API (wrap if needed)
+        adapter = ResponseTypeAdapter(response_type)
+        llm_type = adapter.get_llm_type()
+
         for attempt in range(max_attempts):
             try:
                 result = llm_fn(
                     user_msg=user_msg,
-                    format=format,
+                    response_type=llm_type,
                     sys_msg=sys_msg,
                     model=model,
                     client_override=client,
                     record_store=self._record_store,
                 )
-                if format not in (None, str):
+                if llm_type not in (None, str):
                     try:
-                        result = TypeAdapter(format).validate_python(result)
+                        result = TypeAdapter(llm_type).validate_python(result)
                     except ValidationError as exc:
                         raise StructuredOutputParsingError(
                             "Structured LLM output did not match expected schema."
                         ) from exc
-                return result
+                
+                return adapter.unwrap(result)
             except StructuredOutputParsingError:
                 if attempt == max_attempts - 1:
                     raise
@@ -223,7 +232,7 @@ class Covenance:
         self,
         user_msg: str,
         model: str,
-        format: type[T] | None = None,
+        response_type: type[T] | None = None,
         sys_msg: str | None = None,
         *,
         num_candidates: int = 3,
@@ -236,7 +245,7 @@ class Covenance:
         Args:
             user_msg: User message/prompt
             model: Model name for candidate generation
-            format: Type schema for structured output
+            response_type: Type for structured output
             sys_msg: Optional system message
             num_candidates: Number of parallel calls (default: 3)
             additional_models: Models to cycle through for workers
@@ -246,7 +255,7 @@ class Covenance:
         if num_candidates == 1:
             return self.ask_llm(
                 user_msg=user_msg,
-                format=format,
+                response_type=response_type,
                 sys_msg=sys_msg,
                 model=model,
             )
@@ -256,36 +265,13 @@ class Covenance:
 
         worker_models = additional_models if additional_models else [model]
 
-        # Capture instance reference for worker threads
-        record_store = self._record_store
-
         def make_candidate_call(call_index: int) -> T:
-            # Get worker model
             worker_model = worker_models[call_index % len(worker_models)]
-            provider = self._get_provider(worker_model)
-            client = self._get_client(provider)
-
-            from .clients.anthropic_client import ask_anthropic
-            from .clients.google_client import ask_gemini
-            from .clients.mistral_client import ask_mistral
-            from .clients.openai_client import ask_openai
-            from .clients.openrouter_client import ask_openrouter
-
-            llm_fn = {
-                "gemini": ask_gemini,
-                "mistral": ask_mistral,
-                "anthropic": ask_anthropic,
-                "openrouter": ask_openrouter,
-                "openai": ask_openai,
-            }[provider]
-
-            return llm_fn(
+            return self.ask_llm(
                 user_msg=user_msg,
-                format=format,
+                response_type=response_type,
                 sys_msg=sys_msg,
                 model=worker_model,
-                client_override=client,
-                record_store=record_store,
             )
 
         candidates: list[T] = []
@@ -331,7 +317,7 @@ Below are {len(candidates)} candidate answers generated by worker LLMs. Please i
 
         return self.ask_llm(
             user_msg=integration_user_msg,
-            format=format,
+            response_type=response_type,
             sys_msg=integration_sys_msg,
             model=integration_model,
         )
@@ -341,16 +327,6 @@ Below are {len(candidates)} candidate answers generated by worker LLMs. Please i
 
     def clear_records(self) -> None:
         self._record_store.clear_records()
-
-    def set_llm_call_records_dir(self, path: str | Path | None) -> None:
-        self._record_store.set_llm_call_records_dir(path)
-
-    def get_llm_call_records_dir(self) -> Path | None:
-        return self._record_store.get_llm_call_records_dir()
-
-    def get_llm_call_records_path(self) -> Path | None:
-        return self._record_store.get_llm_call_records_path()
-
 
 _default_client = Covenance(records_dir=get_env_records_dir())
 
@@ -362,7 +338,7 @@ def get_default_client() -> Covenance:
 def ask_llm[T](
     user_msg: str,
     model: str,
-    format: type[T] | None = None,
+    response_type: type[T] | None = None,
     sys_msg: str | None = None,
     *,
     max_parsing_retries: int = 2,
@@ -370,7 +346,7 @@ def ask_llm[T](
     return _default_client.ask_llm(
         user_msg=user_msg,
         model=model,
-        format=format,
+        response_type=response_type,
         sys_msg=sys_msg,
         max_parsing_retries=max_parsing_retries,
     )
@@ -379,7 +355,7 @@ def ask_llm[T](
 def llm_consensus[T](
     user_msg: str,
     model: str,
-    format: type[T] | None = None,
+    response_type: type[T] | None = None,
     sys_msg: str | None = None,
     *,
     num_candidates: int = 3,
@@ -390,7 +366,7 @@ def llm_consensus[T](
     return _default_client.llm_consensus(
         user_msg=user_msg,
         model=model,
-        format=format,
+        response_type=response_type,
         sys_msg=sys_msg,
         num_candidates=num_candidates,
         additional_models=additional_models,

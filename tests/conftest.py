@@ -1,5 +1,8 @@
 """Pytest configuration and shared fixtures."""
 
+import shutil
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -12,6 +15,11 @@ _llm_patches: list[patch] = []
 
 # Storage for original functions (saved before patching)
 _original_llm_functions: dict[str, object] = {}
+
+def _get_online_records_dir(config: pytest.Config) -> Path:
+    """Deterministic temp dir for online test records (same path across xdist workers)."""
+    rootdir_hash = hash(str(config.rootdir)) % 10**8
+    return Path(tempfile.gettempdir()) / f"covenance_online_records_{rootdir_hash}"
 
 
 class LLMCallNotAllowedError(Exception):
@@ -49,6 +57,13 @@ def pytest_configure(config):
     ]
     for p in _llm_patches:
         p.start()
+
+    # Set up records dir for online tests (xdist-compatible: deterministic path)
+    if _online_tests_enabled(config):
+        records_dir = _get_online_records_dir(config)
+        records_dir.mkdir(parents=True, exist_ok=True)
+        import covenance
+        covenance.set_llm_call_records_dir(records_dir)
 
 
 def pytest_collection_modifyitems(
@@ -113,8 +128,50 @@ def unblock_llm():
         p.start()
 
 
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Print LLM cost summary after online tests."""
+    if not _online_tests_enabled(config):
+        return
+    
+    # Only print on the main process (not xdist workers)
+    if hasattr(config, "workerinput"):
+        return
+
+    records_file = _get_online_records_dir(config) / "llm_call_records.jsonl"
+    if not records_file.exists():
+        return
+
+    from covenance.record import Record
+
+    total_cost = 0.0
+    total_input = 0
+    total_output = 0
+    count = 0
+    models_used: set[str] = set()
+
+    for line in records_file.read_text().strip().split("\n"):
+        if not line:
+            continue
+        record = Record.model_validate_json(line)
+        if record.cost_usd is not None:
+            total_cost += record.cost_usd
+        total_input += record.tokens_input
+        total_output += record.tokens_output
+        models_used.add(f"{record.provider}/{record.model}")
+        count += 1
+
+    if count == 0:
+        return
+
+    terminalreporter.write_sep("=", "LLM Cost Summary")
+    terminalreporter.write_line(f"  Calls: {count}")
+    terminalreporter.write_line(f"  Tokens: {total_input + total_output:,} (in={total_input:,}, out={total_output:,})")
+    terminalreporter.write_line(f"  Cost: ${total_cost:.6f}")
+    terminalreporter.write_line(f"  Models: {', '.join(sorted(models_used))}")
+
+
 def pytest_unconfigure(config):
-    """Clean up patches started in pytest_configure."""
+    """Clean up patches and temp records dir."""
     global _llm_patches
     for p in _llm_patches:
         try:
@@ -122,3 +179,7 @@ def pytest_unconfigure(config):
         except Exception:
             pass
     _llm_patches = []
+
+    # Clean up records dir (only on main process, not xdist workers)
+    if _online_tests_enabled(config) and not hasattr(config, "workerinput"):
+        shutil.rmtree(_get_online_records_dir(config), ignore_errors=True)

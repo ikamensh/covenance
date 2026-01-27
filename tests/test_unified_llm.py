@@ -45,7 +45,7 @@ def test_routes_to_gemini_when_model_starts_with_gemini():
 
         result = covenance.ask_llm(
             user_msg="What is the capital of France?",
-            format=SimpleResponse,
+            response_type=SimpleResponse,
             sys_msg="Answer concisely.",
             model="gemini-2.5-flash",
         )
@@ -77,7 +77,7 @@ def test_routes_to_openai_when_model_does_not_start_with_gemini():
 
         result = covenance.ask_llm(
             user_msg="What is the capital of France?",
-            format=SimpleResponse,
+            response_type=SimpleResponse,
             sys_msg="Answer concisely.",
             model="gpt-4o",
         )
@@ -108,7 +108,7 @@ def test_gemini_without_system_message():
 
         result = covenance.ask_llm(
             user_msg="What is the capital of France?",
-            format=SimpleResponse,
+            response_type=SimpleResponse,
             model="gemini-2.5-flash",
         )
 
@@ -131,7 +131,7 @@ def test_openai_without_system_message():
 
         result = covenance.ask_llm(
             user_msg="What is the capital of France?",
-            format=SimpleResponse,
+            response_type=SimpleResponse,
             model="gpt-4o",
         )
 
@@ -156,7 +156,7 @@ def test_openai_usage_extraction_fallback():
 
         result = covenance.ask_llm(
             user_msg="What is the capital of France?",
-            format=SimpleResponse,
+            response_type=SimpleResponse,
             model="gpt-4o",
         )
 
@@ -182,7 +182,7 @@ def test_openai_usage_extraction_raises_when_missing():
         with pytest.raises(AttributeError, match="OpenAI response missing usage info"):
             covenance.ask_llm(
                 user_msg="What is the capital of France?",
-                format=SimpleResponse,
+                response_type=SimpleResponse,
                 model="gpt-4o",
             )
 
@@ -224,7 +224,7 @@ def test_ask_llm_structured_with_consensus_makes_multiple_calls():
 
         result = covenance.llm_consensus(
             user_msg="What is the capital of France?",
-            format=SimpleResponse,
+            response_type=SimpleResponse,
             sys_msg="Answer concisely.",
             model="gemini-2.5-flash",
             num_candidates=3,
@@ -271,7 +271,7 @@ def test_ask_llm_structured_with_consensus_integration_prompt():
 
         covenance.llm_consensus(
             user_msg="What is the capital of France?",
-            format=SimpleResponse,
+            response_type=SimpleResponse,
             sys_msg="Answer concisely.",
             model="gemini-2.5-flash",
             num_candidates=3,
@@ -327,7 +327,7 @@ def test_ask_llm_structured_with_consensus_cycles_models():
 
         covenance.llm_consensus(
             user_msg="What is the capital of France?",
-            format=SimpleResponse,
+            response_type=SimpleResponse,
             sys_msg="Answer concisely.",
             model="gpt-4o",  # Base model (not used when additional_models provided)
             num_candidates=5,
@@ -374,7 +374,7 @@ def test_ask_llm_structured_with_consensus_uses_base_model_when_no_additional():
 
         covenance.llm_consensus(
             user_msg="What is the capital of France?",
-            format=SimpleResponse,
+            response_type=SimpleResponse,
             sys_msg="Answer concisely.",
             model="gemini-2.5-flash",
             num_candidates=3,
@@ -417,7 +417,7 @@ def test_ask_llm_structured_with_consensus_empty_additional_models_uses_base():
 
         covenance.llm_consensus(
             user_msg="What is the capital of France?",
-            format=SimpleResponse,
+            response_type=SimpleResponse,
             sys_msg="Answer concisely.",
             model="gemini-2.5-flash",
             num_candidates=3,
@@ -452,7 +452,7 @@ def test_retry_on_parsing_error():
 
         result = covenance.ask_llm(
             user_msg="What is the capital of France?",
-            format=SimpleResponse,
+            response_type=SimpleResponse,
             model="gemini-2.5-flash",
             max_parsing_retries=2,
         )
@@ -478,7 +478,7 @@ def test_retry_exhausted_raises_exception():
         with pytest.raises(StructuredOutputParsingError):
             covenance.ask_llm(
                 user_msg="What is the capital of France?",
-                format=SimpleResponse,
+                response_type=SimpleResponse,
                 model="gemini-2.5-flash",
                 max_parsing_retries=2,
             )

@@ -11,7 +11,7 @@ from google.genai.errors import ClientError
 from covenance._lazy_client import LazyClient
 from covenance.exceptions import StructuredOutputParsingError
 from covenance.keys import get_gemini_api_key, require_api_key
-from covenance import TokenUsage
+from covenance.record import TokenUsage
 
 if TYPE_CHECKING:
     from covenance.record import RecordStore
@@ -106,8 +106,7 @@ def set_rate_limiter_verbose(verbose: bool) -> None:
 
 def ask_gemini[T](
     user_msg: str,
-    format: type[T]
-    | None = None,  # pydantic model, typing annotation, Literal[…], etc.
+    response_type: type[T] | None = None,
     sys_msg: str | None = None,
     model: str = GeminiModels.flash.value,
     *,
@@ -119,11 +118,11 @@ def ask_gemini[T](
     Retries up to 100 times when encountering 429 RESOURCE_EXHAUSTED errors,
     parsing the wait time from the error message and waiting accordingly.
 
-    If format is str or None, performs a standard chat completion and returns the text.
+    If response_type is str or None, performs a standard chat completion and returns the text.
 
-    `format` can be:
+    `response_type` can be:
         • a Pydantic model                -> returns a model instance
-        • list[MyModel] / dict[str, …]    -> returns the annotated container
+        • list[MyModel]                   -> returns the annotated container
         • a builtin typing annotation     -> returns that type
         • str                             -> returns plain text
     """
@@ -132,14 +131,14 @@ def ask_gemini[T](
     total_tpm_wait = 0.0  # Accumulate TPM retry wait time
     started_at = datetime.now(UTC)  # Record absolute start time
 
-    is_plain_text = format is str or format is None
+    is_plain_text = response_type is str or response_type is None
 
     cfg: dict = {}
     if is_plain_text:
         cfg["response_mime_type"] = "text/plain"
     else:
         cfg["response_mime_type"] = "application/json"
-        cfg["response_schema"] = format  # lets Gemini auto-validate & parse
+        cfg["response_schema"] = response_type  # lets Gemini auto-validate & parse
 
     if sys_msg:
         cfg["system_instruction"] = sys_msg
@@ -180,7 +179,7 @@ def ask_gemini[T](
                 if response.text is None:
                     raise StructuredOutputParsingError(
                         f"Gemini API returned response but text field is None. "
-                        f"Model: {model}, Format: {format}"
+                        f"Model: {model}, response_type: {response_type}"
                     )
                 return response.text  # type: ignore[return-value]
 
@@ -188,7 +187,7 @@ def ask_gemini[T](
                 raise StructuredOutputParsingError(
                     f"Gemini API returned response but parsed field is None. "
                     f"This may indicate a schema mismatch or parsing error. "
-                    f"Model: {model}, Format: {format}"
+                    f"Model: {model}, response_type: {response_type}"
                 )
 
             return response.parsed

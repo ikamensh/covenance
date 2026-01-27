@@ -54,7 +54,7 @@ class OpenRouterModels(str, Enum):
 
 def ask_openrouter[T](
     user_msg: str,
-    format: type[T] | None = None,
+    response_type: type[T] | None = None,
     sys_msg: str | None = None,
     model: str = OpenRouterModels.nova2_lite_free,
     *,
@@ -66,7 +66,7 @@ def ask_openrouter[T](
     return ask_openai_compatible_structured(
         client=api_client,
         user_msg=user_msg,
-        format=format,
+        response_type=response_type,
         sys_msg=sys_msg,
         model=model,
         provider="openrouter",
@@ -85,7 +85,7 @@ if __name__ == "__main__":
 
     result = ask_openrouter(
         user_msg="Review the movie 'Inception' by Christopher Nolan.",
-        format=MovieReview,
+        response_type=MovieReview,
         model=OpenRouterModels.deepseek32,
     )
 

@@ -9,7 +9,7 @@ from openai import OpenAI, RateLimitError
 from covenance._lazy_client import LazyClient
 from covenance.exceptions import StructuredOutputParsingError
 from covenance.keys import get_openai_api_key, require_api_key
-from covenance import TokenUsage
+from covenance.record import TokenUsage
 
 if TYPE_CHECKING:
     from covenance.record import RecordStore
@@ -105,7 +105,7 @@ def _extract_openai_compatible_usage(
 def ask_openai_compatible_structured[T](
     client: OpenAI,
     user_msg: str,
-    format: type[T] | None = None,
+    response_type: type[T] | None = None,
     sys_msg: str | None = None,
     model: str = "gpt-4o",
     provider: str = "openai",
@@ -115,7 +115,7 @@ def ask_openai_compatible_structured[T](
     max_attempts = 100
     total_tpm_wait = 0.0
     started_at = datetime.now(UTC)
-    is_plain_text = format is str or format is None
+    is_plain_text = response_type is str or response_type is None
     for attempt in range(max_attempts):
         try:
             if VERBOSE and attempt > 0:
@@ -134,7 +134,7 @@ def ask_openai_compatible_structured[T](
                 response = client.responses.parse(
                     model=model,
                     input=user_msg,
-                    text_format=format,
+                    text_format=response_type,
                     instructions=sys_msg,
                 )
                 output = response.output_parsed
@@ -177,7 +177,7 @@ def ask_openai_compatible_structured[T](
 
 def ask_openai[T](
     user_msg: str,
-    format: type[T] | None = None,
+    response_type: type[T] | None = None,
     sys_msg: str | None = None,
     model: str = OpenaiModels.gpt5.value,
     *,
@@ -189,7 +189,7 @@ def ask_openai[T](
     return ask_openai_compatible_structured(
         client=api_client,
         user_msg=user_msg,
-        format=format,
+        response_type=response_type,
         sys_msg=sys_msg,
         model=model,
         provider="openai",
@@ -206,7 +206,7 @@ if __name__ == "__main__":
 
     out = ask_openai(
         "What is the capital?",
-        format=Response,
+        response_type=Response,
         model="o4-mini",
         # sys_msg="You are guessy assistant. Guess any missing information. Never ask for any clarifications."
     )

@@ -12,7 +12,7 @@ from covenance._lazy_client import LazyClient
 from covenance.exceptions import StructuredOutputParsingError
 from covenance.keys import get_anthropic_api_key, require_api_key
 from covenance.retry import exponential_backoff
-from covenance import TokenUsage
+from covenance.record import TokenUsage
 
 if TYPE_CHECKING:
     from covenance.record import RecordStore
@@ -105,7 +105,7 @@ def set_rate_limiter_verbose(verbose: bool) -> None:
 
 def ask_anthropic[T](
     user_msg: str,
-    format: type[T] | None = None,
+    response_type: type[T] | None = None,
     sys_msg: str | None = None,
     model: str = ClaudeModels.haiku,
     *,
@@ -117,16 +117,16 @@ def ask_anthropic[T](
     Uses Anthropic's tools parameter with JSON schema derived from Pydantic model
     to get structured output. Retries up to 100 times when encountering rate limit errors.
 
-    If format is str, performs a standard chat completion and returns the text.
+    If response_type is str, performs a standard chat completion and returns the text.
 
     Args:
         user_msg: User message/prompt
-        format: Pydantic model class for structured output, or str/None for plain text
+        response_type: Pydantic model class for structured output, or str/None for plain text
         sys_msg: Optional system message/instructions
         model: Claude model identifier (defaults to claude-3-5-haiku)
 
     Returns:
-        Parsed Pydantic object of type T, or str if format is str
+        Parsed Pydantic object of type T, or str if response_type is str
 
     Raises:
         StructuredOutputParsingError: If parsing fails
@@ -136,15 +136,15 @@ def ask_anthropic[T](
     api_client = client_override or client
 
     # Handle plain text output
-    is_plain_text = format is str or format is None
+    is_plain_text = response_type is str or response_type is None
 
     if not is_plain_text:
         # Convert Pydantic model to JSON schema
-        json_schema = _pydantic_to_json_schema(format)  # type: ignore[arg-type]
+        json_schema = _pydantic_to_json_schema(response_type)  # type: ignore[arg-type]
 
         # Create tool definition for structured output
         tool_name = (
-            format.__name__ if hasattr(format, "__name__") else "structured_output"
+            response_type.__name__ if hasattr(response_type, "__name__") else "structured_output"
         )
         tools = [
             {
@@ -209,7 +209,7 @@ def ask_anthropic[T](
                 if not response.content:
                     raise StructuredOutputParsingError(
                         f"Anthropic API returned empty content. "
-                        f"Model: {model}, Format: {format}"
+                        f"Model: {model}, response_type: {response_type}"
                     )
                 return response.content[0].text  # type: ignore[return-value]
 
@@ -217,7 +217,7 @@ def ask_anthropic[T](
             if not response.content:
                 raise StructuredOutputParsingError(
                     f"Anthropic API returned empty content. "
-                    f"Model: {model}, Format: {format}"
+                    f"Model: {model}, response_type: {response_type}"
                 )
 
             # Find the tool use block
@@ -230,18 +230,18 @@ def ask_anthropic[T](
             if tool_use_block is None:
                 raise StructuredOutputParsingError(
                     f"Anthropic API did not return tool_use block. "
-                    f"Model: {model}, Format: {format}, Content: {response.content}"
+                    f"Model: {model}, response_type: {response_type}, Content: {response.content}"
                 )
 
             # Parse the input as JSON and validate against Pydantic model
             try:
                 parsed_data = tool_use_block.input
                 # Validate and create Pydantic instance
-                parsed = format(**parsed_data)
+                parsed = response_type(**parsed_data)
                 return parsed
             except Exception as e:
                 raise StructuredOutputParsingError(
-                    f"Failed to parse Anthropic response as {format.__name__}: {e}. "
+                    f"Failed to parse Anthropic response as {response_type.__name__}: {e}. "
                     f"Model: {model}, Input: {tool_use_block.input}"
                 ) from e
 
@@ -368,7 +368,7 @@ if __name__ == "__main__":
 
     result = ask_anthropic(
         user_msg="Review the movie 'Inception' by Christopher Nolan.",
-        format=MovieReview,
+        response_type=MovieReview,
         model=ClaudeModels.haiku,
     )
 

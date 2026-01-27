@@ -12,7 +12,7 @@ from covenance._lazy_client import LazyClient
 from covenance.exceptions import StructuredOutputParsingError
 from covenance.keys import get_mistral_api_key, require_api_key
 from covenance.retry import exponential_backoff
-from covenance import TokenUsage
+from covenance.record import TokenUsage
 
 if TYPE_CHECKING:
     from covenance.record import RecordStore
@@ -91,7 +91,7 @@ def set_rate_limiter_verbose(verbose: bool) -> None:
 
 def ask_mistral[T](
     user_msg: str,
-    format: type[T] | None = None,
+    response_type: type[T] | None = None,
     sys_msg: str | None = None,
     model: str = MistralModels.small.value,
     *,
@@ -103,16 +103,16 @@ def ask_mistral[T](
     Uses Mistral's native client.chat.parse() method to get structured Pydantic
     output directly. Retries up to 100 times when encountering rate limit errors.
 
-    If format is str or None, performs a standard chat completion and returns the text.
+    If response_type is str or None, performs a standard chat completion and returns the text.
 
     Args:
         user_msg: User message/prompt
-        format: Pydantic model class for structured output, or str/None for plain text
+        response_type: Pydantic model class for structured output, or str/None for plain text
         sys_msg: Optional system message/instructions
         model: Mistral model identifier (defaults to mistral-small-latest)
 
     Returns:
-        Parsed Pydantic object of type T, or str if format is str
+        Parsed Pydantic object of type T, or str if response_type is str
 
     Raises:
         Exception: After max_attempts retries on rate limit errors
@@ -129,7 +129,7 @@ def ask_mistral[T](
     total_tpm_wait = 0.0  # Accumulate TPM retry wait time
     started_at = datetime.now(UTC)  # Record absolute start time
 
-    is_plain_text = format is str or format is None
+    is_plain_text = response_type is str or response_type is None
 
     for attempt in range(max_attempts):
         try:
@@ -149,7 +149,7 @@ def ask_mistral[T](
                 response = api_client.chat.parse(
                     model=model,
                     messages=messages,
-                    response_format=format,
+                    response_format=response_type,
                     # temperature=0,
                 )
 
@@ -178,7 +178,7 @@ def ask_mistral[T](
                 if content is None:
                     raise StructuredOutputParsingError(
                         f"Mistral API returned response but content field is None. "
-                        f"Model: {model}, Format: {format}"
+                        f"Model: {model}, response_type: {response_type}"
                     )
                 return content  # type: ignore[return-value]
 
@@ -188,7 +188,7 @@ def ask_mistral[T](
                 raise StructuredOutputParsingError(
                     f"Mistral API returned response but parsed field is None. "
                     f"This may indicate a schema mismatch or parsing error. "
-                    f"Model: {model}, Format: {format}"
+                    f"Model: {model}, response_type: {response_type}"
                 )
             return parsed
 
@@ -307,7 +307,7 @@ if __name__ == "__main__":
 
     result = ask_mistral(
         user_msg="Review the movie 'Inception' by Christopher Nolan.",
-        format=MovieReview,
+        response_type=MovieReview,
         model=MistralModels.small.value,
     )
 

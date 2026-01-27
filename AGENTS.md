@@ -70,12 +70,9 @@ while implementation lives separately.
 
 ## LLM call logging
 - `covenance/record.py` defines `Record` plus `RecordStore` for in-process logs and optional JSONL persistence.
-- Persistence is enabled via `set_llm_call_records_dir(...)` or `COVENANCE_RECORDS_DIR`
-  (writes `llm_call_records.jsonl` in the configured folder).
-- `covenance/metrics.py` logs to the default store or an instance-provided store, and still
-  keeps per-context records for backend operation metrics.
-- `covenance/instance.py` defines `Covenance` for per-label API keys and isolated record stores;
-  module-level API uses the default instance.
+- Persistence: for `Covenance` instances use `records_dir=` init param; for the default client use
+  `covenance.set_llm_call_records_dir(...)` or `COVENANCE_RECORDS_DIR` env var.
+  Records are appended to `llm_call_records.jsonl` in the configured folder.
 - `scripts/export_llm_calls.py` exports JSON for `scripts/llm_calls.html`, which visualizes call
   sequences and accepts either raw `records` or the legacy `operations` format.
 

@@ -26,6 +26,7 @@ class Record(BaseModel):
     tokens_output: int
     tokens_cached: int = 0
     tokens_total: int
+    cost_usd: float | None = None  # None if pricing unknown for this model
     duration_seconds: float
     tpm_retry_wait_seconds: float = 0.0
     started_at: str  # ISO 8601 timestamp
@@ -85,7 +86,16 @@ class RecordStore:
         caller_line: int | None = None,
     ) -> Record:
         """Record a single LLM call in memory and optionally persist it to disk."""
+        from covenance.pricing import calculate_cost
+
         duration_seconds = round((ended_at - started_at).total_seconds(), 3)
+        cost_usd = calculate_cost(
+            model=model,
+            provider=provider,
+            input_tokens=usage.prompt_tokens,
+            output_tokens=usage.completion_tokens,
+            cached_tokens=usage.cached_tokens,
+        )
         record = Record(
             model=model,
             provider=provider,
@@ -93,6 +103,7 @@ class RecordStore:
             tokens_output=usage.completion_tokens,
             tokens_cached=usage.cached_tokens,
             tokens_total=usage.total_tokens,
+            cost_usd=cost_usd,
             duration_seconds=duration_seconds,
             tpm_retry_wait_seconds=tpm_retry_wait_seconds,
             started_at=started_at.isoformat(),
@@ -142,17 +153,17 @@ def _default_client():
 
 def set_llm_call_records_dir(path: str | Path | None) -> None:
     """Enable or disable persistence of call records to a local folder."""
-    _default_client().set_llm_call_records_dir(path)
+    _default_client().get_record_store().set_llm_call_records_dir(path)
 
 
 def get_llm_call_records_dir() -> Path | None:
     """Return the configured directory for local call record persistence."""
-    return _default_client().get_llm_call_records_dir()
+    return _default_client().get_record_store().get_llm_call_records_dir()
 
 
 def get_llm_call_records_path() -> Path | None:
     """Return the JSONL file path for persisted call records, if enabled."""
-    return _default_client().get_llm_call_records_path()
+    return _default_client().get_record_store().get_llm_call_records_path()
 
 
 def get_records() -> list[Record]:
@@ -204,7 +215,7 @@ def record_llm_call(
     
     caller_function, caller_file, caller_line = _get_caller_info()
 
-    store.record_llm_call(
+    record = store.record_llm_call(
         model=model,
         provider=provider,
         usage=usage,
@@ -215,9 +226,10 @@ def record_llm_call(
         caller_file=caller_file,
         caller_line=caller_line,
     )
+    cost_str = f"${record.cost_usd:.6f}" if record.cost_usd is not None else "n/a"
     logger.info(
         f"LLM call {provider}/{model} "
         f"tokens={usage.total_tokens} (in={usage.prompt_tokens}, out={usage.completion_tokens}, cached={usage.cached_tokens}) "
-        f"duration={duration:.2f}s"
+        f"cost={cost_str} duration={duration:.2f}s"
     )
 
