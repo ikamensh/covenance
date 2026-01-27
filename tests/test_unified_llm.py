@@ -331,7 +331,7 @@ def test_ask_llm_structured_with_consensus_makes_multiple_calls():
     call_count = {"candidate": 0, "integration": 0}
     candidate_index = 0
 
-    def mock_ask_llm(*args, **kwargs):
+    def mock_ask_gemini(*args, **kwargs):
         nonlocal candidate_index
         # Check if this is an integration call by looking at user_msg
         user_msg = kwargs.get("user_msg", args[0] if args else "")
@@ -348,24 +348,24 @@ def test_ask_llm_structured_with_consensus_makes_multiple_calls():
             candidate_index += 1
             return result
 
-        with patch("covenance.unified.ask_llm") as mock_ask:
-            mock_ask.side_effect = mock_ask_llm
+    with patch("covenance.clients.google_client.ask_gemini") as mock_ask:
+        mock_ask.side_effect = mock_ask_gemini
 
-            result = covenance.llm_consensus(
-                user_msg="What is the capital of France?",
-                format=SimpleResponse,
-                sys_msg="Answer concisely.",
-                model="gemini-2.5-flash",
-                num_candidates=3,
-                parallel=False,  # Use sequential to avoid race conditions in test
-            )
+        result = covenance.llm_consensus(
+            user_msg="What is the capital of France?",
+            format=SimpleResponse,
+            sys_msg="Answer concisely.",
+            model="gemini-2.5-flash",
+            num_candidates=3,
+            parallel=False,  # Use sequential to avoid race conditions in test
+        )
 
-            assert isinstance(result, SimpleResponse)
-            assert result.answer == "Paris"
-            assert result.confidence == 0.92
-            assert call_count["candidate"] == 3
-            assert call_count["integration"] == 1
-            assert mock_ask.call_count == 4
+        assert isinstance(result, SimpleResponse)
+        assert result.answer == "Paris"
+        assert result.confidence == 0.92
+        assert call_count["candidate"] == 3
+        assert call_count["integration"] == 1
+        assert mock_ask.call_count == 4
 
 
 def test_ask_llm_structured_with_consensus_integration_prompt():
@@ -375,7 +375,7 @@ def test_ask_llm_structured_with_consensus_integration_prompt():
 
     integration_calls = []
 
-    def mock_ask_llm(*args, **kwargs):
+    def mock_ask_gemini(*args, **kwargs):
         # Capture integration call arguments
         user_msg = kwargs.get("user_msg", args[0] if args else "")
         # Integration call contains "candidate answers" text
@@ -395,8 +395,8 @@ def test_ask_llm_structured_with_consensus_integration_prompt():
         else:
             return candidate_response
 
-    with patch("covenance.unified.ask_llm") as mock_ask:
-        mock_ask.side_effect = mock_ask_llm
+    with patch("covenance.clients.google_client.ask_gemini") as mock_ask:
+        mock_ask.side_effect = mock_ask_gemini
 
         covenance.llm_consensus(
             user_msg="What is the capital of France?",
@@ -432,7 +432,7 @@ def test_ask_llm_structured_with_consensus_cycles_models():
 
     worker_calls = []
 
-    def mock_ask_llm(*args, **kwargs):
+    def mock_ask_openai(*args, **kwargs):
         # Capture worker call arguments
         user_msg = kwargs.get("user_msg", args[0] if args else "")
         # Integration call contains "candidate answers" text
@@ -450,14 +450,15 @@ def test_ask_llm_structured_with_consensus_cycles_models():
             )
             return candidate_response
 
-    with patch("covenance.unified.ask_llm") as mock_ask:
-        mock_ask.side_effect = mock_ask_llm
+    # Models without special prefixes route to OpenAI
+    with patch("covenance.clients.openai_client.ask_openai") as mock_ask:
+        mock_ask.side_effect = mock_ask_openai
 
         covenance.llm_consensus(
             user_msg="What is the capital of France?",
             format=SimpleResponse,
             sys_msg="Answer concisely.",
-            model="gemini-2.5-flash",  # Base model (not used when additional_models provided)
+            model="gpt-4o",  # Base model (not used when additional_models provided)
             num_candidates=5,
             additional_models=["model1", "model2", "model3"],
             parallel=False,  # Use sequential to verify order
@@ -479,7 +480,7 @@ def test_ask_llm_structured_with_consensus_uses_base_model_when_no_additional():
 
     worker_calls = []
 
-    def mock_ask_llm(*args, **kwargs):
+    def mock_ask_gemini(*args, **kwargs):
         # Capture worker call arguments
         user_msg = kwargs.get("user_msg", args[0] if args else "")
         # Integration call contains "candidate answers" text
@@ -497,8 +498,8 @@ def test_ask_llm_structured_with_consensus_uses_base_model_when_no_additional():
             )
             return candidate_response
 
-    with patch("covenance.unified.ask_llm") as mock_ask:
-        mock_ask.side_effect = mock_ask_llm
+    with patch("covenance.clients.google_client.ask_gemini") as mock_ask:
+        mock_ask.side_effect = mock_ask_gemini
 
         covenance.llm_consensus(
             user_msg="What is the capital of France?",
@@ -522,7 +523,7 @@ def test_ask_llm_structured_with_consensus_empty_additional_models_uses_base():
 
     worker_calls = []
 
-    def mock_ask_llm(*args, **kwargs):
+    def mock_ask_gemini(*args, **kwargs):
         # Capture worker call arguments
         user_msg = kwargs.get("user_msg", args[0] if args else "")
         # Integration call contains "candidate answers" text
@@ -540,8 +541,8 @@ def test_ask_llm_structured_with_consensus_empty_additional_models_uses_base():
             )
             return candidate_response
 
-    with patch("covenance.unified.ask_llm") as mock_ask:
-        mock_ask.side_effect = mock_ask_llm
+    with patch("covenance.clients.google_client.ask_gemini") as mock_ask:
+        mock_ask.side_effect = mock_ask_gemini
 
         covenance.llm_consensus(
             user_msg="What is the capital of France?",

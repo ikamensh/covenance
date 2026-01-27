@@ -5,17 +5,20 @@ Module-level helpers route through the default instance so legacy API keeps work
 
 from __future__ import annotations
 
-from datetime import datetime
+import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from anthropic import Anthropic
 from google import genai
 from mistralai import Mistral
 from openai import OpenAI
+from pydantic import TypeAdapter, ValidationError
 
 from ._lazy_client import LazyClient
 from .clients.openrouter_client import OPENROUTER_BASE_URL
+from .exceptions import StructuredOutputParsingError
 from .keys import (
     get_anthropic_api_key,
     get_gemini_api_key,
@@ -24,14 +27,29 @@ from .keys import (
     get_openrouter_api_key,
     require_api_key,
 )
-from .client_context import use_instance_context
-from .record import Record, RecordStore, get_default_record_store
-from .unified import ask_llm as _ask_llm
-from .unified import llm_consensus as _llm_consensus
+from .record import Record, RecordStore, get_env_records_dir
 from .usage import TokenUsage
 
+
+def set_rate_limiter_verbose(verbose: bool) -> None:
+    """Enable or disable verbose logging for all rate limiters."""
+    from .clients.anthropic_client import set_rate_limiter_verbose as set_anthropic_verbose
+    from .clients.google_client import set_rate_limiter_verbose as set_gemini_verbose
+    from .clients.mistral_client import set_rate_limiter_verbose as set_mistral_verbose
+    from .clients.openai_client import set_rate_limiter_verbose as set_openai_verbose
+
+    set_anthropic_verbose(verbose)
+    set_gemini_verbose(verbose)
+    set_openai_verbose(verbose)
+    set_mistral_verbose(verbose)
+
+
 class Covenance:
-    """Isolated LLM configuration for per-label keys and call records."""
+    """LLM client with isolated API keys and call records.
+
+    Each instance maintains its own record store and can have its own API keys.
+    This allows multiple independent LLM configurations in the same process.
+    """
 
     def __init__(
         self,
@@ -43,8 +61,6 @@ class Covenance:
         gemini_api_key: str | None = None,
         openrouter_api_key: str | None = None,
         records_dir: str | Path | None = None,
-        _record_store: RecordStore | None = None,
-        _client_overrides: dict[str, Any] | None = None,
     ) -> None:
         self.label = label
         self._openai_api_key = openai_api_key
@@ -53,28 +69,17 @@ class Covenance:
         self._gemini_api_key = gemini_api_key
         self._openrouter_api_key = openrouter_api_key
 
-        if _record_store is None:
-            self._record_store = RecordStore(records_dir=records_dir, label=label)
-        else:
-            if records_dir is not None:
-                raise ValueError("records_dir cannot be set when record_store is provided.")
-            if label is not None and _record_store.label is None:
-                _record_store.label = label
-            self._record_store = _record_store
-
-        if _client_overrides is not None:
-            self._client_overrides = _client_overrides
-        else:
-            has_override = any(
-                [
-                    openai_api_key,
-                    anthropic_api_key,
-                    mistral_api_key,
-                    gemini_api_key,
-                    openrouter_api_key,
-                ]
-            )
-            self._client_overrides = self._build_client_overrides() if has_override else None
+        self._record_store = RecordStore(records_dir=records_dir, label=label)
+        has_override = any(
+            [
+                openai_api_key,
+                anthropic_api_key,
+                mistral_api_key,
+                gemini_api_key,
+                openrouter_api_key,
+            ]
+        )
+        self._clients = self._build_clients() if has_override else None
 
     def _require_key(
         self,
@@ -124,7 +129,7 @@ class Covenance:
         )
         return Anthropic(api_key=api_key)
 
-    def _build_client_overrides(self) -> dict[str, Any]:
+    def _build_clients(self) -> dict[str, Any]:
         return {
             "openai": LazyClient(self._create_openai_client, label="openai"),
             "openrouter": LazyClient(self._create_openrouter_client, label="openrouter"),
@@ -132,6 +137,28 @@ class Covenance:
             "mistral": LazyClient(self._create_mistral_client, label="mistral"),
             "anthropic": LazyClient(self._create_anthropic_client, label="anthropic"),
         }
+
+    def get_record_store(self) -> RecordStore:
+        return self._record_store
+
+    def _get_client(self, provider: str) -> Any | None:
+        """Get client for provider, or None to use module-level default."""
+        if self._clients is None:
+            return None
+        return self._clients.get(provider)
+
+    def _get_provider(self, model: str) -> str:
+        """Determine provider from model name."""
+        if model.startswith("gemini"):
+            return "gemini"
+        elif model.startswith(("mistral", "ministral", "codestral")):
+            return "mistral"
+        elif model.startswith("claude"):
+            return "anthropic"
+        elif "/" in model:
+            return "openrouter"
+        else:
+            return "openai"
 
     def ask_llm[T](
         self,
@@ -142,14 +169,55 @@ class Covenance:
         *,
         max_parsing_retries: int = 2,
     ) -> T:
-        with use_instance_context(self._record_store, self._client_overrides):
-            return _ask_llm(
-                user_msg=user_msg,
-                model=model,
-                format=format,
-                sys_msg=sys_msg,
-                max_parsing_retries=max_parsing_retries,
-            )
+        """Route to appropriate provider and make LLM call.
+
+        Args:
+            user_msg: User message/prompt
+            model: Model name - determines provider routing
+            format: Type schema for structured output (Pydantic model, etc.)
+            sys_msg: Optional system message
+            max_parsing_retries: Retries for structured output parsing errors
+        """
+        provider = self._get_provider(model)
+        client = self._get_client(provider)
+        max_attempts = max_parsing_retries + 1
+
+        # Import provider functions
+        from .clients.anthropic_client import ask_anthropic
+        from .clients.google_client import ask_gemini
+        from .clients.mistral_client import ask_mistral
+        from .clients.openai_client import ask_openai
+        from .clients.openrouter_client import ask_openrouter
+
+        llm_fn = {
+            "gemini": ask_gemini,
+            "mistral": ask_mistral,
+            "anthropic": ask_anthropic,
+            "openrouter": ask_openrouter,
+            "openai": ask_openai,
+        }[provider]
+
+        for attempt in range(max_attempts):
+            try:
+                result = llm_fn(
+                    user_msg=user_msg,
+                    format=format,
+                    sys_msg=sys_msg,
+                    model=model,
+                    client_override=client,
+                    record_store=self._record_store,
+                )
+                if format not in (None, str):
+                    try:
+                        result = TypeAdapter(format).validate_python(result)
+                    except ValidationError as exc:
+                        raise StructuredOutputParsingError(
+                            "Structured LLM output did not match expected schema."
+                        ) from exc
+                return result
+            except StructuredOutputParsingError:
+                if attempt == max_attempts - 1:
+                    raise
 
     def llm_consensus[T](
         self,
@@ -163,17 +231,110 @@ class Covenance:
         integration_model: str | None = None,
         parallel: bool = True,
     ) -> T:
-        with use_instance_context(self._record_store, self._client_overrides):
-            return _llm_consensus(
+        """Make multiple LLM calls and integrate results.
+
+        Args:
+            user_msg: User message/prompt
+            model: Model name for candidate generation
+            format: Type schema for structured output
+            sys_msg: Optional system message
+            num_candidates: Number of parallel calls (default: 3)
+            additional_models: Models to cycle through for workers
+            integration_model: Model for integration (defaults to same as model)
+            parallel: Whether to make calls in parallel (default: True)
+        """
+        if num_candidates == 1:
+            return self.ask_llm(
                 user_msg=user_msg,
-                model=model,
                 format=format,
                 sys_msg=sys_msg,
-                num_candidates=num_candidates,
-                additional_models=additional_models,
-                integration_model=integration_model,
-                parallel=parallel,
+                model=model,
             )
+
+        if integration_model is None:
+            integration_model = model
+
+        worker_models = additional_models if additional_models else [model]
+
+        # Capture instance reference for worker threads
+        record_store = self._record_store
+
+        def make_candidate_call(call_index: int) -> T:
+            # Get worker model
+            worker_model = worker_models[call_index % len(worker_models)]
+            provider = self._get_provider(worker_model)
+            client = self._get_client(provider)
+
+            from .clients.anthropic_client import ask_anthropic
+            from .clients.google_client import ask_gemini
+            from .clients.mistral_client import ask_mistral
+            from .clients.openai_client import ask_openai
+            from .clients.openrouter_client import ask_openrouter
+
+            llm_fn = {
+                "gemini": ask_gemini,
+                "mistral": ask_mistral,
+                "anthropic": ask_anthropic,
+                "openrouter": ask_openrouter,
+                "openai": ask_openai,
+            }[provider]
+
+            return llm_fn(
+                user_msg=user_msg,
+                format=format,
+                sys_msg=sys_msg,
+                model=worker_model,
+                client_override=client,
+                record_store=record_store,
+            )
+
+        candidates: list[T] = []
+        if parallel:
+            with ThreadPoolExecutor(max_workers=num_candidates) as executor:
+                futures = [
+                    executor.submit(make_candidate_call, i) for i in range(num_candidates)
+                ]
+                for future in as_completed(futures):
+                    try:
+                        candidates.append(future.result())
+                    except Exception as e:
+                        raise RuntimeError(f"Failed to generate candidate: {e}") from e
+        else:
+            for i in range(num_candidates):
+                candidates.append(make_candidate_call(i))
+
+        # Format candidates for integration
+        candidate_texts = []
+        for i, candidate in enumerate(candidates, 1):
+            if hasattr(candidate, "model_dump"):
+                candidate_json = json.dumps(
+                    candidate.model_dump(mode="json"), ensure_ascii=False, indent=2
+                )
+            elif isinstance(candidate, (dict, list)):
+                candidate_json = json.dumps(candidate, ensure_ascii=False, indent=2)
+            else:
+                candidate_json = str(candidate)
+            candidate_texts.append(f"--- Candidate Answer {i} ---\n{candidate_json}")
+
+        integration_user_msg = f"""{user_msg}
+
+Below are {len(candidates)} candidate answers generated by worker LLMs. Please integrate them into a single, high-quality answer that follows the same format and requirements as specified above.
+
+"""
+        for candidate_text in candidate_texts:
+            integration_user_msg += f"\n{candidate_text}\n"
+
+        integration_sys_msg = (
+            "You are an LLM orchestrator, your goal is to integrate individual answers into a high quality answer. "
+            f"Worker system message: {sys_msg or 'you are a helpful assistant'}"
+        )
+
+        return self.ask_llm(
+            user_msg=integration_user_msg,
+            format=format,
+            sys_msg=integration_sys_msg,
+            model=integration_model,
+        )
 
     def record_llm_call(
         self,
@@ -181,21 +342,21 @@ class Covenance:
         model: str,
         provider: str,
         usage: TokenUsage,
-        started_at: datetime,
-        ended_at: datetime,
+        started_at,
+        ended_at,
         tpm_retry_wait_seconds: float = 0.0,
     ) -> None:
         from .metrics import record_llm_call
 
-        with use_instance_context(self._record_store, self._client_overrides):
-            record_llm_call(
-                model=model,
-                provider=provider,
-                usage=usage,
-                started_at=started_at,
-                ended_at=ended_at,
-                tpm_retry_wait_seconds=tpm_retry_wait_seconds,
-            )
+        record_llm_call(
+            model=model,
+            provider=provider,
+            usage=usage,
+            started_at=started_at,
+            ended_at=ended_at,
+            tpm_retry_wait_seconds=tpm_retry_wait_seconds,
+            record_store=self._record_store,
+        )
 
     def get_records(self) -> list[Record]:
         return self._record_store.get_records()
@@ -213,10 +374,7 @@ class Covenance:
         return self._record_store.get_llm_call_records_path()
 
 
-_default_client = Covenance(
-    _record_store=get_default_record_store(),
-    _client_overrides=None,
-)
+_default_client = Covenance(records_dir=get_env_records_dir())
 
 
 def get_default_client() -> Covenance:
@@ -261,4 +419,3 @@ def llm_consensus[T](
         integration_model=integration_model,
         parallel=parallel,
     )
-

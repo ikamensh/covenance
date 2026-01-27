@@ -3,16 +3,18 @@ import time
 import warnings
 from datetime import UTC, datetime
 from enum import Enum
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from google import genai  # pip install --upgrade google-genai
 from google.genai.errors import ClientError
 
 from covenance._lazy_client import LazyClient
 from covenance.exceptions import StructuredOutputParsingError
-from covenance.client_context import get_client_override
 from covenance.keys import get_gemini_api_key, require_api_key
 from covenance.usage import TokenUsage
+
+if TYPE_CHECKING:
+    from covenance.record import RecordStore
 
 # Suppress warning about non-text parts (thought_signature) in Gemini responses.
 # This is expected when using structured outputs - the library handles it automatically
@@ -108,6 +110,9 @@ def ask_gemini[T](
     | None = None,  # pydantic model, typing annotation, Literal[…], etc.
     sys_msg: str | None = None,
     model: str = GeminiModels.flash.value,
+    *,
+    client_override: genai.Client | None = None,
+    record_store: "RecordStore | None" = None,
 ) -> T:
     """Call Gemini API with automatic retry on rate limit errors.
 
@@ -123,7 +128,7 @@ def ask_gemini[T](
         • str                             -> returns plain text
     """
     max_attempts = 100
-    api_client = get_client_override("gemini") or client
+    api_client = client_override or client
     total_tpm_wait = 0.0  # Accumulate TPM retry wait time
     started_at = datetime.now(UTC)  # Record absolute start time
 
@@ -154,8 +159,6 @@ def ask_gemini[T](
             ended_at = datetime.now(UTC)  # Record absolute end time
             usage = _extract_gemini_usage(response, model=model)
 
-            # Record to metrics context for DB persistence
-            # Duration is calculated from started_at and ended_at timestamps
             from covenance.metrics import record_llm_call
 
             record_llm_call(
@@ -165,6 +168,7 @@ def ask_gemini[T](
                 tpm_retry_wait_seconds=total_tpm_wait,
                 started_at=started_at,
                 ended_at=ended_at,
+                record_store=record_store,
             )
 
             if VERBOSE and attempt > 0:

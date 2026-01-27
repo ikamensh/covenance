@@ -14,8 +14,7 @@ from datetime import datetime
 from threading import Lock
 from typing import Any
 
-from .client_context import get_record_store
-from .record import Record
+from .record import Record, RecordStore
 from .usage import TokenUsage
 
 logger = logging.getLogger(__name__)
@@ -98,12 +97,11 @@ class LLMOperationContext:
         started_at: datetime,
         ended_at: datetime,
         tpm_retry_wait_seconds: float = 0.0,
+        record_store: RecordStore | None = None,
     ) -> None:
-        """Record a single LLM call.
-
-        Uses the current instance context to select the record store.
-        """
-        record = get_record_store().record_llm_call(
+        """Record a single LLM call."""
+        store = record_store or _get_default_record_store()
+        record = store.record_llm_call(
             model=model,
             provider=provider,
             usage=usage,
@@ -142,6 +140,13 @@ class LLMOperationContext:
 MetricsContext = LLMOperationContext
 
 
+def _get_default_record_store() -> RecordStore:
+    """Get the default record store from the default client."""
+    from .client import get_default_client
+
+    return get_default_client().get_record_store()
+
+
 def record_llm_call(
     *,
     model: str,
@@ -150,14 +155,16 @@ def record_llm_call(
     started_at: datetime,
     ended_at: datetime,
     tpm_retry_wait_seconds: float = 0.0,
+    record_store: RecordStore | None = None,
 ) -> None:
-    """Record an LLM call to the current context (if active) and log it.
+    """Record an LLM call to the given store (or default) and log it.
 
-    If no context is active, still logs the call but without business context.
+    Also appends to the current LLMOperationContext if one is active.
     """
     duration = (ended_at - started_at).total_seconds()
+    store = record_store or _get_default_record_store()
 
-    record = get_record_store().record_llm_call(
+    record = store.record_llm_call(
         model=model,
         provider=provider,
         usage=usage,

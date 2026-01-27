@@ -3,17 +3,19 @@
 import time
 from datetime import UTC, datetime
 from enum import Enum
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from anthropic import Anthropic, APIError, RateLimitError
 from pydantic import BaseModel
 
 from covenance._lazy_client import LazyClient
 from covenance.exceptions import StructuredOutputParsingError
-from covenance.client_context import get_client_override
 from covenance.keys import get_anthropic_api_key, require_api_key
 from covenance.retry import exponential_backoff
 from covenance.usage import TokenUsage
+
+if TYPE_CHECKING:
+    from covenance.record import RecordStore
 
 T = TypeVar("T")
 
@@ -106,6 +108,9 @@ def ask_anthropic[T](
     format: type[T] | None = None,
     sys_msg: str | None = None,
     model: str = ClaudeModels.haiku,
+    *,
+    client_override: Anthropic | None = None,
+    record_store: "RecordStore | None" = None,
 ) -> T:
     """Call Anthropic API with structured output using tools parameter.
 
@@ -128,7 +133,7 @@ def ask_anthropic[T](
         Exception: After max_attempts retries on rate limit errors
     """
     max_attempts = 100
-    api_client = get_client_override("anthropic") or client
+    api_client = client_override or client
 
     # Handle plain text output
     is_plain_text = format is str or format is None
@@ -183,8 +188,6 @@ def ask_anthropic[T](
             ended_at = datetime.now(UTC)  # Record absolute end time
             usage = _extract_anthropic_usage(response, model=model)
 
-            # Record to metrics context for DB persistence
-            # Duration is calculated from started_at and ended_at timestamps
             from covenance.metrics import record_llm_call
 
             record_llm_call(
@@ -194,6 +197,7 @@ def ask_anthropic[T](
                 tpm_retry_wait_seconds=total_tpm_wait,
                 started_at=started_at,
                 ended_at=ended_at,
+                record_store=record_store,
             )
 
             if VERBOSE and attempt > 0:

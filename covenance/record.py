@@ -114,22 +114,33 @@ class RecordStore:
             handle.write("\n")
 
 
-_default_store = RecordStore()
+def get_env_records_dir() -> str | None:
+    """Return the persisted records directory from env, if configured."""
+    from .keys import load_env_if_present
+
+    load_env_if_present()
+    return os.getenv(RECORDS_DIR_ENV)
+
+
+def _default_client():
+    from .client import get_default_client
+
+    return get_default_client()
 
 
 def set_llm_call_records_dir(path: str | Path | None) -> None:
     """Enable or disable persistence of call records to a local folder."""
-    _default_store.set_llm_call_records_dir(path)
+    _default_client().set_llm_call_records_dir(path)
 
 
 def get_llm_call_records_dir() -> Path | None:
     """Return the configured directory for local call record persistence."""
-    return _default_store.get_llm_call_records_dir()
+    return _default_client().get_llm_call_records_dir()
 
 
 def get_llm_call_records_path() -> Path | None:
     """Return the JSONL file path for persisted call records, if enabled."""
-    return _default_store.get_llm_call_records_path()
+    return _default_client().get_llm_call_records_path()
 
 
 def record_llm_call(
@@ -142,7 +153,7 @@ def record_llm_call(
     tpm_retry_wait_seconds: float = 0.0,
 ) -> Record:
     """Record a single LLM call in memory and optionally persist it to disk."""
-    return _default_store.record_llm_call(
+    return _default_client().get_record_store().record_llm_call(
         model=model,
         provider=provider,
         usage=usage,
@@ -154,23 +165,10 @@ def record_llm_call(
 
 def get_records() -> list[Record]:
     """Return a copy of all call records captured in this process."""
-    return _default_store.get_records()
+    return _default_client().get_records()
 
 
 def clear_records() -> None:
     """Clear in-memory call records (does not delete persisted files)."""
-    _default_store.clear_records()
-
-
-def get_default_record_store() -> RecordStore:
-    """Return the shared default record store."""
-    return _default_store
-
-
-from .keys import load_env_if_present
-
-load_env_if_present()
-_env_records_dir = os.getenv(RECORDS_DIR_ENV)
-if _env_records_dir:
-    set_llm_call_records_dir(_env_records_dir)
+    _default_client().clear_records()
 

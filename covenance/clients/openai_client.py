@@ -2,15 +2,17 @@ import re
 import time
 from datetime import UTC, datetime
 from enum import Enum
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from openai import OpenAI, RateLimitError
 
 from covenance._lazy_client import LazyClient
 from covenance.exceptions import StructuredOutputParsingError
-from covenance.client_context import get_client_override
 from covenance.keys import get_openai_api_key, require_api_key
 from covenance.usage import TokenUsage
+
+if TYPE_CHECKING:
+    from covenance.record import RecordStore
 
 T = TypeVar("T")
 
@@ -110,6 +112,7 @@ def ask_openai_compatible_structured[T](
     sys_msg: str | None = None,
     model: str = "gpt-4o",
     provider: str = "openai",
+    record_store: "RecordStore | None" = None,
 ) -> T:
     """Execute structured call against an OpenAI-compatible API with retries."""
     max_attempts = 100
@@ -153,6 +156,7 @@ def ask_openai_compatible_structured[T](
                 tpm_retry_wait_seconds=total_tpm_wait,
                 started_at=started_at,
                 ended_at=ended_at,
+                record_store=record_store,
             )
 
             if output is None:
@@ -179,9 +183,12 @@ def ask_openai[T](
     format: type[T] | None = None,
     sys_msg: str | None = None,
     model: str = OpenaiModels.gpt5.value,
+    *,
+    client_override: OpenAI | None = None,
+    record_store: "RecordStore | None" = None,
 ) -> T:
     """Call OpenAI API with automatic retry."""
-    api_client = get_client_override("openai") or client
+    api_client = client_override or client
     return ask_openai_compatible_structured(
         client=api_client,
         user_msg=user_msg,
@@ -189,6 +196,7 @@ def ask_openai[T](
         sys_msg=sys_msg,
         model=model,
         provider="openai",
+        record_store=record_store,
     )
 
 

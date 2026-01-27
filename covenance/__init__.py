@@ -25,8 +25,14 @@ from .client import (
     ask_llm,
     get_default_client,
     llm_consensus,
+    set_rate_limiter_verbose,
 )
-from .record import get_llm_call_records_dir, get_records, set_llm_call_records_dir
+from .record import (
+    clear_records,
+    get_llm_call_records_dir,
+    get_records,
+    set_llm_call_records_dir,
+)
 from .usage import TokenUsage, usage_stats
 
 __all__ = [
@@ -36,23 +42,25 @@ __all__ = [
     "ask_openai",
     "ask_mistral",
     "ask_openrouter",
-    "ask_llm",  # Unified wrapper
-    "llm_consensus",  # Multi-call with integration
+    "ask_llm",
+    "llm_consensus",
     "Covenance",
     "get_default_client",
+    "set_rate_limiter_verbose",
     "ClaudeModels",
     "GeminiModels",
     "MistralModels",
     "OpenaiModels",
     "OpenRouterModels",
     "TokenUsage",
-    "usage_stats",  # Global usage statistics tracker
+    "usage_stats",
     # LLM operation context and metrics collection
     "Record",
     "LLMOperationContext",
     "MetricsContext",  # Backwards compat alias
     "record_llm_call",
     "get_records",
+    "clear_records",
     "get_llm_call_records_dir",
     "set_llm_call_records_dir",
 ]

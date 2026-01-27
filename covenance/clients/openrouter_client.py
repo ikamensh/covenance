@@ -5,15 +5,17 @@ It's OpenAI-compatible, so we use the OpenAI SDK with OpenRouter's base URL.
 """
 
 from enum import Enum
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from openai import OpenAI
 
 from covenance._lazy_client import LazyClient
-from covenance.client_context import get_client_override
 from covenance.keys import get_openrouter_api_key, require_api_key
 
 from .openai_client import ask_openai_compatible_structured
+
+if TYPE_CHECKING:
+    from covenance.record import RecordStore
 
 T = TypeVar("T")
 
@@ -55,9 +57,12 @@ def ask_openrouter[T](
     format: type[T] | None = None,
     sys_msg: str | None = None,
     model: str = OpenRouterModels.nova2_lite_free,
+    *,
+    client_override: OpenAI | None = None,
+    record_store: "RecordStore | None" = None,
 ) -> T:
     """Call OpenRouter API with automatic retry."""
-    api_client = get_client_override("openrouter") or client
+    api_client = client_override or client
     return ask_openai_compatible_structured(
         client=api_client,
         user_msg=user_msg,
@@ -65,6 +70,7 @@ def ask_openrouter[T](
         sys_msg=sys_msg,
         model=model,
         provider="openrouter",
+        record_store=record_store,
     )
 
 

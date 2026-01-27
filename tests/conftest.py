@@ -33,19 +33,17 @@ def _online_tests_enabled(config: pytest.Config) -> bool:
 
 
 def pytest_configure(config):
-    """Patch unified LLM wrappers before tests import the package."""
+    """Patch LLM wrappers before tests import the package."""
     global _llm_patches, _original_llm_functions
 
-    from covenance import unified
+    import covenance.client as client_module
 
-    _original_llm_functions["ask_llm_structured"] = unified.ask_llm
-    _original_llm_functions["ask_llm_structured_with_consensus"] = (
-        unified.llm_consensus
-    )
+    _original_llm_functions["ask_llm"] = client_module.ask_llm
+    _original_llm_functions["llm_consensus"] = client_module.llm_consensus
 
     _llm_patches = [
-        patch("covenance.unified.ask_llm", _raise_llm_error),
-        patch("covenance.unified.llm_consensus", _raise_llm_error),
+        patch("covenance.client.ask_llm", _raise_llm_error),
+        patch("covenance.client.llm_consensus", _raise_llm_error),
         patch("covenance.ask_llm", _raise_llm_error),
         patch("covenance.llm_consensus", _raise_llm_error),
     ]
@@ -69,13 +67,24 @@ def pytest_collection_modifyitems(
 
 
 @pytest.fixture
-def real_ask_llm_structured():
-    return _original_llm_functions["ask_llm_structured"]
+def real_ask_llm():
+    return _original_llm_functions["ask_llm"]
 
 
 @pytest.fixture
-def real_ask_llm_structured_with_consensus():
-    return _original_llm_functions["ask_llm_structured_with_consensus"]
+def real_llm_consensus():
+    return _original_llm_functions["llm_consensus"]
+
+
+# Backwards compat aliases
+@pytest.fixture
+def real_ask_llm_structured(real_ask_llm):
+    return real_ask_llm
+
+
+@pytest.fixture
+def real_ask_llm_structured_with_consensus(real_llm_consensus):
+    return real_llm_consensus
 
 
 @pytest.fixture
@@ -87,19 +96,15 @@ def unblock_llm():
 
     # Explicitly restore the original functions to ensure they're available
     import covenance as llm_init
-    import covenance.unified as unified
+    import covenance.client as client_module
 
-    # Restore functions in unified module
-    unified.ask_llm = _original_llm_functions["ask_llm_structured"]
-    unified.llm_consensus = _original_llm_functions[
-        "ask_llm_structured_with_consensus"
-    ]
+    # Restore functions in client module
+    client_module.ask_llm = _original_llm_functions["ask_llm"]
+    client_module.llm_consensus = _original_llm_functions["llm_consensus"]
 
-    # Restore functions in main module (these are re-exported from unified)
-    llm_init.ask_llm = _original_llm_functions["ask_llm_structured"]
-    llm_init.llm_consensus = _original_llm_functions[
-        "ask_llm_structured_with_consensus"
-    ]
+    # Restore functions in main module (re-exported from client)
+    llm_init.ask_llm = _original_llm_functions["ask_llm"]
+    llm_init.llm_consensus = _original_llm_functions["llm_consensus"]
 
     yield
 
@@ -117,5 +122,3 @@ def pytest_unconfigure(config):
         except Exception:
             pass
     _llm_patches = []
-
-
