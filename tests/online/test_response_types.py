@@ -1,7 +1,7 @@
 """Online tests for response_type support across providers.
 
 Type Support Matrix:
-  All:     ✓ Pydantic models, int/float/bool, list[X], list[list[X]], tuple[...] 
+  All:     ✓ Pydantic models, int/float/bool, list[X], list[list[X]], tuple[...]
   Mistral: ✓ dict[str, X] (supports additionalProperties)
   OpenAI/Gemini: ✗ dict[str, X] (rejects additionalProperties)
 
@@ -14,6 +14,7 @@ from pydantic import BaseModel
 import covenance
 
 pytestmark = pytest.mark.online
+
 
 # Test models
 class SimpleItem(BaseModel):
@@ -28,8 +29,19 @@ class NestedItem(BaseModel):
 
 # Provider models
 # Use mini 2/3 of the time and nano 1/3 to distribute load across TPM limits
-MODELS = ["gpt-5-mini", "gpt-5-mini", "gpt-5-nano", "gemini-2.5-flash-lite", "mistral-small-latest"]
-MODELS_NO_DICT = ["gpt-5-mini", "gpt-5-mini", "gpt-5-nano", "gemini-2.5-flash-lite"]  # OpenAI/Gemini reject dict types
+MODELS = [
+    "gpt-5-mini",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gemini-2.5-flash-lite",
+    "mistral-small-latest",
+]
+MODELS_NO_DICT = [
+    "gpt-5-mini",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gemini-2.5-flash-lite",
+]  # OpenAI/Gemini reject dict types
 
 
 @pytest.fixture(autouse=True)
@@ -48,18 +60,23 @@ def test_pydantic_simple(unblock_llm, model):
 
 @pytest.mark.parametrize("model", MODELS)
 def test_pydantic_nested(unblock_llm, model):
-    result = covenance.ask_llm("Item labeled 'primes' with numbers [2, 3, 5]", model, NestedItem)
+    result = covenance.ask_llm(
+        "Item labeled 'primes' with numbers [2, 3, 5]", model, NestedItem
+    )
     assert isinstance(result, NestedItem)
     assert all(isinstance(x, int) for x in result.numbers)
 
 
 # Native types (auto-wrapped)
 @pytest.mark.parametrize("model", MODELS)
-@pytest.mark.parametrize("response_type,expected_type", [
-    (int, int),
-    (float, (int, float)),
-    (bool, bool),
-])
+@pytest.mark.parametrize(
+    "response_type,expected_type",
+    [
+        (int, int),
+        (float, (int, float)),
+        (bool, bool),
+    ],
+)
 def test_native_types(unblock_llm, model, response_type, expected_type):
     result = covenance.ask_llm("What is 19 + 23?", model, response_type)
     assert isinstance(result, expected_type)
@@ -67,11 +84,14 @@ def test_native_types(unblock_llm, model, response_type, expected_type):
 
 # List types
 @pytest.mark.parametrize("model", MODELS)
-@pytest.mark.parametrize("response_type,elem_type", [
-    (list[int], int),
-    (list[str], str),
-    (list[float], (int, float)),
-])
+@pytest.mark.parametrize(
+    "response_type,elem_type",
+    [
+        (list[int], int),
+        (list[str], str),
+        (list[float], (int, float)),
+    ],
+)
 def test_list_types(unblock_llm, model, response_type, elem_type):
     result = covenance.ask_llm("Give me a few examples", model, response_type)
     assert isinstance(result, list)
@@ -80,7 +100,9 @@ def test_list_types(unblock_llm, model, response_type, elem_type):
 
 @pytest.mark.parametrize("model", MODELS)
 def test_list_pydantic(unblock_llm, model):
-    result = covenance.ask_llm("Give me items with names and values", model, list[SimpleItem])
+    result = covenance.ask_llm(
+        "Give me items with names and values", model, list[SimpleItem]
+    )
     assert isinstance(result, list) and len(result) >= 1
     assert all(isinstance(x, SimpleItem) for x in result)
 
@@ -95,17 +117,28 @@ def test_list_nested(unblock_llm, model):
 # Tuple types
 @pytest.mark.parametrize("model", MODELS)
 def test_tuple_mixed(unblock_llm, model):
-    result = covenance.ask_llm("A word, an integer, and a decimal", model, tuple[str, int, float])
+    result = covenance.ask_llm(
+        "A word, an integer, and a decimal", model, tuple[str, int, float]
+    )
     assert isinstance(result, tuple) and len(result) == 3
     assert isinstance(result[0], str)
     assert isinstance(result[1], int)
 
 
 # Dict types - Mistral supports, OpenAI/Gemini reject additionalProperties
-@pytest.mark.parametrize("model", [
-    pytest.param(m, marks=pytest.mark.xfail(reason="additionalProperties rejected", raises=Exception))
-    for m in MODELS_NO_DICT
-] + ["mistral-small-latest"])
+@pytest.mark.parametrize(
+    "model",
+    [
+        pytest.param(
+            m,
+            marks=pytest.mark.xfail(
+                reason="additionalProperties rejected", raises=Exception
+            ),
+        )
+        for m in MODELS_NO_DICT
+    ]
+    + ["mistral-small-latest"],
+)
 def test_dict_str_int(unblock_llm, model):
     result = covenance.ask_llm("Mapping: apple=1, banana=2", model, dict[str, int])
     assert isinstance(result, dict)

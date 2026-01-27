@@ -6,35 +6,39 @@ Module-level helpers route through the default instance so legacy API keeps work
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from anthropic import Anthropic
 from google import genai
 from mistralai import Mistral
 from openai import OpenAI
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from ._lazy_client import LazyClient
-from .response_adapter import ResponseTypeAdapter
+from .clients.grok_client import GROK_BASE_URL
 from .clients.openrouter_client import OPENROUTER_BASE_URL
 from .exceptions import StructuredOutputParsingError
 from .keys import (
     get_anthropic_api_key,
     get_gemini_api_key,
+    get_grok_api_key,
     get_mistral_api_key,
     get_openai_api_key,
     get_openrouter_api_key,
     require_api_key,
 )
 from .record import Record, RecordStore, get_env_records_dir
-from covenance.record import TokenUsage
+from .response_adapter import ResponseTypeAdapter
 
 
 def set_rate_limiter_verbose(verbose: bool) -> None:
     """Enable or disable verbose logging for all rate limiters."""
-    from .clients.anthropic_client import set_rate_limiter_verbose as set_anthropic_verbose
+    from .clients.anthropic_client import (
+        set_rate_limiter_verbose as set_anthropic_verbose,
+    )
     from .clients.google_client import set_rate_limiter_verbose as set_gemini_verbose
     from .clients.mistral_client import set_rate_limiter_verbose as set_mistral_verbose
     from .clients.openai_client import set_rate_limiter_verbose as set_openai_verbose
@@ -61,6 +65,7 @@ class Covenance:
         mistral_api_key: str | None = None,
         gemini_api_key: str | None = None,
         openrouter_api_key: str | None = None,
+        grok_api_key: str | None = None,
         records_dir: str | Path | None = None,
     ) -> None:
         self.label = label
@@ -69,6 +74,7 @@ class Covenance:
         self._mistral_api_key = mistral_api_key
         self._gemini_api_key = gemini_api_key
         self._openrouter_api_key = openrouter_api_key
+        self._grok_api_key = grok_api_key
 
         self._record_store = RecordStore(records_dir=records_dir, label=label)
         has_override = any(
@@ -78,6 +84,7 @@ class Covenance:
                 mistral_api_key,
                 gemini_api_key,
                 openrouter_api_key,
+                grok_api_key,
             ]
         )
         self._clients = self._build_clients() if has_override else None
@@ -130,13 +137,25 @@ class Covenance:
         )
         return Anthropic(api_key=api_key)
 
+    def _create_grok_client(self) -> OpenAI:
+        api_key = self._require_key(
+            self._grok_api_key,
+            "grok",
+            ["XAI_API_KEY", "GROK_API_KEY"],
+            get_grok_api_key,
+        )
+        return OpenAI(api_key=api_key, base_url=GROK_BASE_URL)
+
     def _build_clients(self) -> dict[str, Any]:
         return {
             "openai": LazyClient(self._create_openai_client, label="openai"),
-            "openrouter": LazyClient(self._create_openrouter_client, label="openrouter"),
+            "openrouter": LazyClient(
+                self._create_openrouter_client, label="openrouter"
+            ),
             "gemini": LazyClient(self._create_gemini_client, label="gemini"),
             "mistral": LazyClient(self._create_mistral_client, label="mistral"),
             "anthropic": LazyClient(self._create_anthropic_client, label="anthropic"),
+            "grok": LazyClient(self._create_grok_client, label="grok"),
         }
 
     def get_record_store(self) -> RecordStore:
@@ -156,6 +175,8 @@ class Covenance:
             return "mistral"
         elif model.startswith("claude"):
             return "anthropic"
+        elif model.startswith("grok"):
+            return "grok"
         elif "/" in model:
             return "openrouter"
         else:
@@ -189,6 +210,7 @@ class Covenance:
         # Import provider functions
         from .clients.anthropic_client import ask_anthropic
         from .clients.google_client import ask_gemini
+        from .clients.grok_client import ask_grok
         from .clients.mistral_client import ask_mistral
         from .clients.openai_client import ask_openai
         from .clients.openrouter_client import ask_openrouter
@@ -199,6 +221,7 @@ class Covenance:
             "anthropic": ask_anthropic,
             "openrouter": ask_openrouter,
             "openai": ask_openai,
+            "grok": ask_grok,
         }[provider]
 
         # Adapt response_type for LLM API (wrap if needed)
@@ -222,7 +245,7 @@ class Covenance:
                         raise StructuredOutputParsingError(
                             "Structured LLM output did not match expected schema."
                         ) from exc
-                
+
                 return adapter.unwrap(result)
             except StructuredOutputParsingError:
                 if attempt == max_attempts - 1:
@@ -278,7 +301,8 @@ class Covenance:
         if parallel:
             with ThreadPoolExecutor(max_workers=num_candidates) as executor:
                 futures = [
-                    executor.submit(make_candidate_call, i) for i in range(num_candidates)
+                    executor.submit(make_candidate_call, i)
+                    for i in range(num_candidates)
                 ]
                 for future in as_completed(futures):
                     try:
@@ -327,6 +351,7 @@ Below are {len(candidates)} candidate answers generated by worker LLMs. Please i
 
     def clear_records(self) -> None:
         self._record_store.clear_records()
+
 
 _default_client = Covenance(records_dir=get_env_records_dir())
 

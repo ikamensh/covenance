@@ -1,5 +1,6 @@
 """Pytest configuration and shared fixtures."""
 
+import hashlib
 import shutil
 import tempfile
 from pathlib import Path
@@ -16,9 +17,11 @@ _llm_patches: list[patch] = []
 # Storage for original functions (saved before patching)
 _original_llm_functions: dict[str, object] = {}
 
+
 def _get_online_records_dir(config: pytest.Config) -> Path:
     """Deterministic temp dir for online test records (same path across xdist workers)."""
-    rootdir_hash = hash(str(config.rootdir)) % 10**8
+    # Use md5 for deterministic hash (Python's hash() is randomized per process)
+    rootdir_hash = hashlib.md5(str(config.rootdir).encode()).hexdigest()[:8]
     return Path(tempfile.gettempdir()) / f"covenance_online_records_{rootdir_hash}"
 
 
@@ -63,6 +66,7 @@ def pytest_configure(config):
         records_dir = _get_online_records_dir(config)
         records_dir.mkdir(parents=True, exist_ok=True)
         import covenance
+
         covenance.set_llm_call_records_dir(records_dir)
 
 
@@ -70,15 +74,20 @@ def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
     run_online = _online_tests_enabled(config)
-    skip_reason = "run with: pytest -m online"
+    # Use empty reason to avoid cluttering output - we'll print a single summary instead
+    skip_reason = ""
+    skipped_online_count = 0
     for item in items:
         if item.get_closest_marker("online"):
             if not run_online:
                 item.add_marker(pytest.mark.skip(reason=skip_reason))
+                skipped_online_count += 1
             else:
                 # Add unblock_llm fixture to online tests so they can make real calls
                 # Use request.getfixturevalue to ensure it runs before the test
                 item.add_marker(pytest.mark.usefixtures("unblock_llm"))
+    # Store count for terminal summary (since -rfE filters skipped from stats)
+    config._skipped_online_count = skipped_online_count
 
 
 @pytest.fixture
@@ -129,14 +138,22 @@ def unblock_llm():
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    """Print LLM cost summary after online tests."""
-    if not _online_tests_enabled(config):
-        return
-    
+    """Print LLM cost summary after online tests and aggregated skip message."""
     # Only print on the main process (not xdist workers)
     if hasattr(config, "workerinput"):
         return
 
+    # Print single summary line for skipped online tests
+    if not _online_tests_enabled(config):
+        skipped_online = getattr(config, "_skipped_online_count", 0)
+        if skipped_online > 0:
+            terminalreporter.write_sep("=", "short test summary info")
+            terminalreporter.write_line(
+                f"SKIPPED [{skipped_online}] online tests (run with: pytest -m online)"
+            )
+        return
+
+    # Print LLM cost summary for online tests
     records_file = _get_online_records_dir(config) / "llm_call_records.jsonl"
     if not records_file.exists():
         return
@@ -165,7 +182,9 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 
     terminalreporter.write_sep("=", "LLM Cost Summary")
     terminalreporter.write_line(f"  Calls: {count}")
-    terminalreporter.write_line(f"  Tokens: {total_input + total_output:,} (in={total_input:,}, out={total_output:,})")
+    terminalreporter.write_line(
+        f"  Tokens: {total_input + total_output:,} (in={total_input:,}, out={total_output:,})"
+    )
     terminalreporter.write_line(f"  Cost: ${total_cost:.6f}")
     terminalreporter.write_line(f"  Models: {', '.join(sorted(models_used))}")
 

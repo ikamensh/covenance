@@ -29,5 +29,3 @@ def exponential_backoff(
     wait_time = capped_wait * jitter_factor
 
     return max(wait_time, 0.1)
-
-

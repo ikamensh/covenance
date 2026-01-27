@@ -2,9 +2,8 @@
 
 from datetime import UTC, datetime, timedelta
 
-from covenance import Covenance, get_default_client, TokenUsage
-from covenance.record import record_llm_call
-from covenance.record import clear_records, get_records
+from covenance import Covenance, get_default_client
+from covenance.record import clear_records, get_records, record_llm_call, TokenUsage
 
 
 def _make_timestamps(duration_seconds: float) -> tuple[datetime, datetime]:
@@ -60,3 +59,22 @@ def test_instance_records_are_isolated():
     assert len(client.get_records()) == 1
     assert len(get_records()) == 0
 
+
+def test_provider_routing():
+    """Verify model names route to correct providers."""
+    client = Covenance()
+    cases = [
+        ("gpt-5", "openai"),
+        ("o3", "openai"),
+        ("gemini-2.5-flash", "gemini"),
+        ("claude-3.5-sonnet", "anthropic"),
+        ("mistral-large", "mistral"),
+        ("grok-4", "grok"),
+        ("grok-4-fast", "grok"),
+        ("grok-3-mini", "grok"),
+        ("meta-llama/llama-3-70b", "openrouter"),
+    ]
+    for model, expected in cases:
+        assert client._get_provider(model) == expected, (
+            f"{model} should route to {expected}"
+        )

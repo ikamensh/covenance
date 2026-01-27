@@ -178,7 +178,7 @@ def clear_records() -> None:
 
 def _get_caller_info(skip_frames: int = 4) -> tuple[str | None, str | None, int | None]:
     """Extract caller info from the call stack.
-    
+
     Returns (function_name, filename, lineno) of the caller.
     Best-effort: returns (None, None, None) if stack is too short.
     """
@@ -212,7 +212,7 @@ def record_llm_call(
     """Record an LLM call to the given store (or default) and log it."""
     duration = (ended_at - started_at).total_seconds()
     store = record_store or _default_client().get_record_store()
-    
+
     caller_function, caller_file, caller_line = _get_caller_info()
 
     record = store.record_llm_call(
@@ -232,4 +232,3 @@ def record_llm_call(
         f"tokens={usage.total_tokens} (in={usage.prompt_tokens}, out={usage.completion_tokens}, cached={usage.cached_tokens}) "
         f"cost={cost_str} duration={duration:.2f}s"
     )
-

@@ -56,3 +56,7 @@ def get_openrouter_api_key() -> str | None:
 
 def get_gemini_api_key() -> str | None:
     return _get_key(["GEMINI_API_KEY", "GOOGLE_API_KEY"])
+
+
+def get_grok_api_key() -> str | None:
+    return _get_key(["XAI_API_KEY", "GROK_API_KEY"])

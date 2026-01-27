@@ -1,8 +1,8 @@
 """Model name types for LLM API calls.
 
 This module defines a Literal type that includes all valid model names
-from Gemini, OpenAI, Mistral, Anthropic Claude, and OpenRouter, which can be used in Pydantic models to
-generate proper OpenAPI schemas with enum values.
+from Gemini, OpenAI, Mistral, Anthropic Claude, xAI Grok, and OpenRouter, which can be used
+in Pydantic models to generate proper OpenAPI schemas with enum values.
 
 The Literal type is derived dynamically from the enums to ensure it stays
 in sync when new models are added.
@@ -12,6 +12,7 @@ from typing import Literal
 
 from covenance.clients.anthropic_client import ClaudeModels
 from covenance.clients.google_client import GeminiModels
+from covenance.clients.grok_client import GrokModels
 from covenance.clients.mistral_client import MistralModels
 from covenance.clients.openai_client import OpenaiModels as OpenAIModels
 from covenance.clients.openrouter_client import OpenRouterModels
@@ -21,8 +22,8 @@ def _create_llm_model_name_literal() -> type:
     """Create a Literal type from all model enum values.
 
     Dynamically extracts all model names from GeminiModels, OpenAIModels,
-    MistralModels, ClaudeModels, and OpenRouterModels enums and creates a Literal type that Pydantic can
-    introspect for OpenAPI schema generation.
+    MistralModels, ClaudeModels, GrokModels, and OpenRouterModels enums and creates a
+    Literal type that Pydantic can introspect for OpenAPI schema generation.
 
     Returns:
         A Literal type containing all valid model names
@@ -32,12 +33,14 @@ def _create_llm_model_name_literal() -> type:
     openai_models = [model.value for model in OpenAIModels]
     mistral_models = [model.value for model in MistralModels]
     claude_models = [model.value for model in ClaudeModels]
+    grok_models = [model.value for model in GrokModels]
     openrouter_models = [model.value for model in OpenRouterModels]
     all_models = tuple(
         gemini_models
         + openai_models
         + mistral_models
         + claude_models
+        + grok_models
         + openrouter_models
     )
 

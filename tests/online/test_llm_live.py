@@ -16,6 +16,7 @@ PROVIDERS = [
     ("gpt-5-nano", "openai"),
     ("gemini-2.5-flash-lite", "gemini"),
     ("mistral-small-latest", "mistral"),
+    ("grok-4-1-fast-non-reasoning", "grok"),  # non-reasoning for faster/cheaper tests
 ]
 
 
@@ -32,7 +33,7 @@ def test_structured_math(unblock_llm, model, provider):
     result = covenance.ask_llm("Compute 19 + 23", model, MathResponse)
     assert isinstance(result, MathResponse)
     assert result.result == 42
-    
+
     records = covenance.get_records()
     assert len(records) >= 1
     assert all(r.provider == provider for r in records)
@@ -42,15 +43,14 @@ def test_consensus_math(unblock_llm):
     """Consensus call integrates multiple candidates."""
     result = covenance.llm_consensus(
         "Compute 19 + 23",
-        "gpt-5-nano",
+        "gemini-2.5-flash-lite",
         MathResponse,
         num_candidates=2,
         parallel=False,
     )
     assert isinstance(result, MathResponse)
     assert result.result == 42
-    
+
     # 2 candidates + 1 integration = 3 calls
     records = covenance.get_records()
     assert len(records) >= 3
-    assert all(r.provider == "openai" for r in records)

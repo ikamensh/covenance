@@ -48,7 +48,15 @@ def main() -> int:
 
     if args.test_pypi:
         run(
-            ["python", "-m", "twine", "upload", "--repository", "testpypi", *dist_files()],
+            [
+                "python",
+                "-m",
+                "twine",
+                "upload",
+                "--repository",
+                "testpypi",
+                *dist_files(),
+            ],
             "Uploading to TestPyPI...",
         )
         return 0

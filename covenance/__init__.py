@@ -5,7 +5,6 @@ try:
 except ImportError:
     __version__ = "0.0.0"
 
-from .record import Record
 from .client import (
     Covenance,
     ask_llm,
@@ -14,12 +13,12 @@ from .client import (
     set_rate_limiter_verbose,
 )
 from .record import (
+    Record,
     clear_records,
     get_llm_call_records_dir,
     get_records,
     set_llm_call_records_dir,
 )
-from covenance.record import TokenUsage
 
 __all__ = [
     "__version__",

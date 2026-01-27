@@ -17,7 +17,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class ModelPricing:
     """Pricing for a model in USD per 1M tokens.
-    
+
     Attributes:
         input: Price per 1M input tokens (fresh, non-cached)
         output: Price per 1M output tokens
@@ -74,13 +74,36 @@ GEMINI_PRICING: dict[str, ModelPricing] = {
     "gemini-2.5-flash-lite": ModelPricing(input=0.10, output=0.40, cached=0.01),
     # Gemini 2.0 (75% cache discount)
     "gemini-2.0-flash": ModelPricing(input=0.10, output=0.40, cached=0.025),
-    "gemini-2.0-flash-lite": ModelPricing(input=0.075, output=0.30, cached=None),  # no caching
+    "gemini-2.0-flash-lite": ModelPricing(
+        input=0.075, output=0.30, cached=None
+    ),  # no caching
+}
+
+# xAI Grok pricing (verified 2026-01-27)
+# Sources: https://docs.x.ai/docs/models, https://pricepertoken.com/pricing-page/provider/xai
+# Note: xAI uses dashes in model names (grok-4-1-fast, not grok-4.1-fast)
+# Cache discount is 75% (cached = 25% of input)
+GROK_PRICING: dict[str, ModelPricing] = {
+    # Flagship reasoning model (256k context)
+    "grok-4": ModelPricing(input=3.00, output=15.00, cached=0.75),
+    # Fast models (2M context) - reasoning enabled by default
+    "grok-4-1-fast": ModelPricing(input=0.20, output=0.50, cached=0.05),
+    "grok-4-fast": ModelPricing(input=0.20, output=0.50, cached=0.05),
+    # Non-reasoning variants (faster, no chain-of-thought)
+    "grok-4-1-fast-non-reasoning": ModelPricing(input=0.20, output=0.50, cached=0.05),
+    "grok-4-fast-non-reasoning": ModelPricing(input=0.20, output=0.50, cached=0.05),
+    # Code-specialized (256k context, 90% cache discount)
+    "grok-code-fast-1": ModelPricing(input=0.20, output=1.50, cached=0.02),
+    # Grok 3 family (131k context)
+    "grok-3": ModelPricing(input=3.00, output=15.00, cached=0.75),
+    "grok-3-mini": ModelPricing(input=0.30, output=0.50, cached=0.075),
 }
 
 # Combined lookup by provider
 PRICING: dict[str, dict[str, ModelPricing]] = {
     "openai": OPENAI_PRICING,
     "gemini": GEMINI_PRICING,
+    "grok": GROK_PRICING,
 }
 
 
@@ -100,22 +123,21 @@ def calculate_cost(
     cached_tokens: int = 0,
 ) -> float | None:
     """Calculate cost in USD, or None if pricing unknown.
-    
+
     cached_tokens is a subset of input_tokens (i.e., cached_tokens <= input_tokens).
     Fresh input tokens = input_tokens - cached_tokens.
     """
     pricing = get_model_pricing(model, provider)
     if pricing is None:
         return None
-    
+
     fresh_input = input_tokens - cached_tokens
     fresh_input_cost = (fresh_input / 1_000_000) * pricing.input
-    
+
     # If model supports caching, use cached price; otherwise treat as full price
     cached_price = pricing.cached if pricing.cached is not None else pricing.input
     cached_cost = (cached_tokens / 1_000_000) * cached_price
-    
-    output_cost = (output_tokens / 1_000_000) * pricing.output
-    
-    return round(fresh_input_cost + cached_cost + output_cost, 6)
 
+    output_cost = (output_tokens / 1_000_000) * pricing.output
+
+    return round(fresh_input_cost + cached_cost + output_cost, 6)

@@ -11,8 +11,8 @@ from pydantic import BaseModel
 from covenance._lazy_client import LazyClient
 from covenance.exceptions import StructuredOutputParsingError
 from covenance.keys import get_anthropic_api_key, require_api_key
-from covenance.retry import exponential_backoff
 from covenance.record import TokenUsage
+from covenance.retry import exponential_backoff
 
 if TYPE_CHECKING:
     from covenance.record import RecordStore
@@ -144,7 +144,9 @@ def ask_anthropic[T](
 
         # Create tool definition for structured output
         tool_name = (
-            response_type.__name__ if hasattr(response_type, "__name__") else "structured_output"
+            response_type.__name__
+            if hasattr(response_type, "__name__")
+            else "structured_output"
         )
         tools = [
             {

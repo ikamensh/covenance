@@ -40,7 +40,9 @@ def test_routes_to_gemini_when_model_starts_with_gemini():
     mock_response.usage_metadata.candidates_token_count = 5
     mock_response.usage_metadata.total_token_count = 15
 
-    with patch("covenance.clients.google_client.client.models.generate_content") as mock_gemini:
+    with patch(
+        "covenance.clients.google_client.client.models.generate_content"
+    ) as mock_gemini:
         mock_gemini.return_value = mock_response
 
         result = covenance.ask_llm(
@@ -103,7 +105,9 @@ def test_gemini_without_system_message():
     mock_response.usage_metadata.candidates_token_count = 5
     mock_response.usage_metadata.total_token_count = 15
 
-    with patch("covenance.clients.google_client.client.models.generate_content") as mock_gemini:
+    with patch(
+        "covenance.clients.google_client.client.models.generate_content"
+    ) as mock_gemini:
         mock_gemini.return_value = mock_response
 
         result = covenance.ask_llm(
@@ -150,7 +154,7 @@ def test_openai_usage_extraction_fallback():
     mock_response.usage.total_tokens = 40
 
     covenance.clear_records()
-    
+
     with patch("covenance.clients.openai_client.client.responses.parse") as mock_openai:
         mock_openai.return_value = mock_response
 
@@ -446,7 +450,9 @@ def test_retry_on_parsing_error():
     mock_response_failure.usage_metadata.candidates_token_count = 5
     mock_response_failure.usage_metadata.total_token_count = 15
 
-    with patch("covenance.clients.google_client.client.models.generate_content") as mock_gemini:
+    with patch(
+        "covenance.clients.google_client.client.models.generate_content"
+    ) as mock_gemini:
         # First call fails, second succeeds
         mock_gemini.side_effect = [mock_response_failure, mock_response_success]
 
@@ -471,7 +477,9 @@ def test_retry_exhausted_raises_exception():
     mock_response_failure.usage_metadata.candidates_token_count = 5
     mock_response_failure.usage_metadata.total_token_count = 15
 
-    with patch("covenance.clients.google_client.client.models.generate_content") as mock_gemini:
+    with patch(
+        "covenance.clients.google_client.client.models.generate_content"
+    ) as mock_gemini:
         # All calls fail
         mock_gemini.return_value = mock_response_failure
 

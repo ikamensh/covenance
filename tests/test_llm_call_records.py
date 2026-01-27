@@ -2,15 +2,14 @@
 
 from datetime import UTC, datetime, timedelta
 
-from covenance.record import record_llm_call
 from covenance.record import (
     Record,
     clear_records,
     get_llm_call_records_path,
     get_records,
-    set_llm_call_records_dir,
+    record_llm_call,
+    set_llm_call_records_dir, TokenUsage,
 )
-from covenance import TokenUsage
 
 
 def _make_timestamps(duration_seconds: float) -> tuple[datetime, datetime]:
@@ -72,4 +71,3 @@ def test_record_llm_call_persists_to_dir(tmp_path):
         assert parsed.provider == "anthropic"
     finally:
         set_llm_call_records_dir(None)
-

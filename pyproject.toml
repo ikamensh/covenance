@@ -68,7 +68,7 @@ include = [
 
 [tool.pytest.ini_options]
 minversion = "8.0"
-addopts = "-ra -q"
+addopts = "-rfE -q"
 testpaths = [
     "tests",
 ]
