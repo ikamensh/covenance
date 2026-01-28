@@ -1,37 +1,143 @@
 # covenance
 
-Unified, structured LLM calls for OpenAI, Gemini, Mistral, Anthropic, and OpenRouter.
+Type-safe LLM outputs across any provider. Track every call and its cost.
+
+```python
+from covenance import ask_llm
+
+review = ask_llm("Write a short review of Inception", model="gpt-4.1-nano")
+is_positive = ask_llm(f"Is this review positive? '{review}'", model="gemini-2.5-flash-lite", response_type=bool)
+print(is_positive)  # True
+```
+
+## Usecases
+
+- **Structured outputs that work** - Same code, any provider. Pydantic models, primitives, lists, tuples.
+- **Zero routing config** - Model name determines provider automatically (`gemini-*`, `claude-*`, `gpt-*`)
+- **Know what you're spending** - Every call logged with token counts and cost. Just call `print_usage()`.
+
+## Installation
+
+```bash
+pip install covenance
+```
+
+## Structured outputs
+
+Pass `response_type` to get validated, typed results:
+
+```python
+# Pydantic models
+class Evaluation(BaseModel):
+    reasoning: str
+    is_correct: bool
+
+result = ask_llm("Is 2+2=5?", model="gemini-2.5-flash-lite", response_type=Evaluation)
+print(result.reasoning)  # "2+2 equals 4, not 5"
+print(result.is_correct)  # False
+
+# Primitives
+answer = ask_llm("Is Python interpreted?", model="gpt-4.1-nano", response_type=bool)
+print(answer)  # True
+
+# Collections
+items = ask_llm("List 3 prime numbers", model="claude-sonnet-4-20250514", response_type=list[int])
+print(items)  # [2, 3, 5]
+```
+
+Works identically across OpenAI, Gemini, Anthropic, Mistral, Grok, and OpenRouter.
+
+## Cost tracking
+
+Every call is recorded with token counts and cost:
+
+```python
+from covenance import ask_llm, print_usage, get_records
+
+ask_llm("Hello", model="gpt-4.1-nano")
+ask_llm("Hello", model="gemini-2.5-flash-lite")
+
+print_usage()
+# ==================================================
+# LLM Usage Summary (default client)
+# ==================================================
+#   Calls: 2
+#   Tokens: 45 (In: 12, Out: 33)
+#   Cost: $0.0001
+#   Models: gemini/gemini-2.5-flash-lite, openai/gpt-4.1-nano
+
+# Access individual records
+for record in get_records():
+    print(f"{record.model}: {record.cost_usd}")
+```
+
+Persist records by setting `COVENANCE_RECORDS_DIR` or calling `set_llm_call_records_dir()`.
+
+## Consensus for quality
+
+Run parallel LLM calls and integrate results for higher quality:
+
+```python
+from covenance import llm_consensus
+
+result = llm_consensus(
+    "Explain quantum entanglement",
+    model="gpt-4.1-nano",
+    response_type=Evaluation,
+    num_candidates=3,  # 3 parallel calls + integration
+)
+```
+
+## Supported providers
+
+Provider is determined by model name prefix:
+
+| Prefix | Provider |
+|--------|----------|
+| `gpt-*`, `o1-*`, `o3-*` | OpenAI |
+| `gemini-*` | Google Gemini |
+| `claude-*` | Anthropic |
+| `mistral-*`, `codestral-*` | Mistral |
+| `grok-*` | xAI Grok |
+| `org/model` (contains `/`) | OpenRouter |
 
 ## API keys
-Set environment variables:
-- OPENAI_API_KEY
-- GOOGLE_API_KEY (or GEMINI_API_KEY)
-- MISTRAL_API_KEY
-- ANTHROPIC_API_KEY
-- OPENROUTER_API_KEY
-If a `.env` file is present in the working directory, it is loaded automatically
-without overriding existing environment variables.
 
-## Call logging
-- LLM call timing records are always captured; access in-process via `covenance.get_records()`.
-- Persist records by setting `COVENANCE_RECORDS_DIR` or calling `covenance.set_llm_call_records_dir(...)`
-  (records are appended to `llm_call_records.jsonl` in that folder).
-- To visualize, run `python scripts/export_llm_calls.py` then open `scripts/llm_calls.html` in a browser.
+Set environment variables for the providers you use:
 
-## Clients (separate keys + history)
-Use `Covenance` to isolate API keys and call records per task or subsystem.
+- `OPENAI_API_KEY`
+- `GOOGLE_API_KEY` (or `GEMINI_API_KEY`)
+- `ANTHROPIC_API_KEY`
+- `MISTRAL_API_KEY`
+- `OPENROUTER_API_KEY`
+- `XAI_API_KEY` (for Grok)
 
-```
+A `.env` file in the working directory is loaded automatically.
+
+## Isolated clients
+
+Use `Covenance` instances for separate API keys and call records per subsystem:
+
+```python
 from covenance import Covenance
+from pydantic import BaseModel
 
-client = Covenance(
-    label="risk-review",
-    openai_api_key="sk-...",
-    records_dir="/tmp/my_records",  # optional: persist to JSONL
+# Each client tracks its own usage
+question_client = Covenance(label="questions")
+review_client = Covenance(label="review")
+
+answer = question_client.ask_llm("Who is David Blaine?", model="gpt-4.1-nano")
+
+class Evaluation(BaseModel):
+    reasoning: str
+    is_correct: bool
+
+eval = review_client.llm_consensus(
+    f"Is this accurate? '''{answer}'''",
+    model="gemini-2.5-flash-lite",
+    response_type=Evaluation,
 )
-result = client.ask_llm("Summarize", model="gpt-5")
-records = client.get_records()
-```
 
-Module-level helpers (`covenance.ask_llm`, `covenance.llm_consensus`, `covenance.get_records`)
-use the default instance.
+question_client.print_usage()  # Shows only the question call
+review_client.print_usage()    # Shows only the review call
+```
