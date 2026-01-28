@@ -9,7 +9,7 @@ from covenance.record import (
     get_llm_call_records_path,
     get_records,
     record_llm_call,
-    set_llm_call_records_dir,
+    set_records_dir,
 )
 
 
@@ -44,7 +44,7 @@ def test_record_llm_call_is_always_logged():
 
 def test_record_llm_call_persists_to_dir(tmp_path):
     clear_records()
-    set_llm_call_records_dir(tmp_path)
+    set_records_dir(tmp_path)
 
     try:
         started_at, ended_at = _make_timestamps(2.0)
@@ -71,4 +71,4 @@ def test_record_llm_call_persists_to_dir(tmp_path):
         assert parsed.model == "claude-haiku-4-5"
         assert parsed.provider == "anthropic"
     finally:
-        set_llm_call_records_dir(None)
+        set_records_dir(None)

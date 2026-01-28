@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 import logging
 import os
-from contextvars import ContextVar, copy_context
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
@@ -151,18 +151,18 @@ def get_env_records_dir() -> str | None:
     return os.getenv(RECORDS_DIR_ENV)
 
 
-def set_llm_call_records_dir(path: str | Path | None) -> None:
+def set_records_dir(path: str | Path | None) -> None:
     """Enable or disable persistence of call records to a local folder."""
     from .client import _default_client
 
-    _default_client.get_record_store().set_llm_call_records_dir(path)
+    _default_client.get_record_store().set_records_dir(path)
 
 
-def get_llm_call_records_dir() -> Path | None:
+def get_records_dir() -> Path | None:
     """Return the configured directory for local call record persistence."""
     from .client import _default_client
 
-    return _default_client.get_record_store().get_llm_call_records_dir()
+    return _default_client.get_record_store().get_records_dir()
 
 
 def get_llm_call_records_path() -> Path | None:
@@ -354,3 +354,17 @@ def print_usage(
             print(f"  Cost: ${cost_usd:.2f}")
 
     print(f"  Models: {', '.join(sorted(summary['models']))}")
+
+
+def load_records_from_jsonl(path: str | Path) -> list[Record]:
+    """Load LLM call records from a JSONL file."""
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"No records file found at {path}")
+    records: list[Record] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped:
+            records.append(Record.model_validate_json(stripped))
+    records.sort(key=lambda r: r.started_at)
+    return records

@@ -67,7 +67,7 @@ def pytest_configure(config):
         records_dir.mkdir(parents=True, exist_ok=True)
         import covenance
 
-        covenance.set_llm_call_records_dir(records_dir)
+        covenance.set_records_dir(records_dir)
 
 
 def pytest_collection_modifyitems(

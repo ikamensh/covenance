@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from covenance.record import (
     Record,
     get_llm_call_records_path,
-    set_llm_call_records_dir,
+    set_records_dir,
 )
 
 # ---------------------------
@@ -35,7 +35,7 @@ class LLMCallRecordsExport(BaseModel):
 
 def _resolve_records_path() -> Path:
     if CALL_RECORDS_DIR is not None:
-        set_llm_call_records_dir(CALL_RECORDS_DIR)
+        set_records_dir(CALL_RECORDS_DIR)
     records_path = get_llm_call_records_path()
     if records_path is None:
         raise RuntimeError(

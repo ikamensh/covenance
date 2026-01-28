@@ -13,12 +13,14 @@ from .client import (
 from .record import (
     Record,
     clear_records,
-    get_llm_call_records_dir,
+    get_records_dir,
     get_records,
+    load_records_from_jsonl,
     print_usage,
-    set_llm_call_records_dir,
+    set_records_dir,
     usage_summary,
 )
+from .visual import print_call_timeline
 
 __all__ = [
     "__version__",
@@ -29,8 +31,10 @@ __all__ = [
     "Record",
     "get_records",
     "clear_records",
-    "get_llm_call_records_dir",
-    "set_llm_call_records_dir",
+    "get_records_dir",
+    "set_records_dir",
+    "load_records_from_jsonl",
     "usage_summary",
     "print_usage",
+    "print_call_timeline",
 ]
