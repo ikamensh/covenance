@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ from mistralai import Mistral
 from openai import OpenAI
 from pydantic import TypeAdapter, ValidationError
 
+from ._caller_context import capture_caller_context
 from ._lazy_client import LazyClient
 from .clients.grok_client import GROK_BASE_URL
 from .clients.openrouter_client import OPENROUTER_BASE_URL
@@ -30,7 +32,7 @@ from .keys import (
     get_openrouter_api_key,
     require_api_key,
 )
-from .record import Record, RecordStore, capture_caller_context, copy_context, get_env_records_dir
+from .record import Record, RecordStore, get_env_records_dir
 from .response_adapter import ResponseTypeAdapter
 
 

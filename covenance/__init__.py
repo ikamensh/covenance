@@ -13,8 +13,8 @@ from .client import (
 from .record import (
     Record,
     clear_records,
-    get_records_dir,
     get_records,
+    get_records_dir,
     load_records_from_jsonl,
     print_usage,
     set_records_dir,

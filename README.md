@@ -14,7 +14,7 @@ print(is_positive)  # True
 
 - **Structured outputs that work** - Same code, any provider. Pydantic models, primitives, lists, tuples.
 - **Zero routing config** - Model name determines provider automatically (`gemini-*`, `claude-*`, `gpt-*`)
-- **Know what you're spending** - Every call logged with token counts and cost. Just call `print_usage()`.
+- **Know what you're spending** - Every call logged with token counts and cost. `print_usage()` for totals, `print_call_timeline()` for a visual waterfall.
 
 ## Installation
 
@@ -52,7 +52,7 @@ Works identically across OpenAI, Gemini, Anthropic, Mistral, Grok, and OpenRoute
 Every call is recorded with token counts and cost:
 
 ```python
-from covenance import ask_llm, print_usage, get_records
+from covenance import ask_llm, print_usage, print_call_timeline, get_records
 
 ask_llm("Hello", model="gpt-4.1-nano")
 ask_llm("Hello", model="gemini-2.5-flash-lite")
@@ -72,6 +72,25 @@ for record in get_records():
 ```
 
 Persist records by setting `COVENANCE_RECORDS_DIR` or calling `set_llm_call_records_dir()`.
+
+## Call timeline
+
+Visualize call sequences and parallelism in your terminal:
+
+```python
+from covenance import print_call_timeline
+
+print_call_timeline()
+# LLM Call Timeline (4.4s total, 5 calls)
+#                         |0s                                            4.4s|
+#   gpt-4.1-nano    1.3s  |████████████████                                  |
+#   g2.5-flash-l    1.1s  |                 ████████████                     |
+#   g2.5-flash-l    1.1s  |                 ████████████                     |
+#   g2.5-flash-l    1.5s  |                 ████████████████                 |
+#   g2.5-flash-l    1.5s  |                                 █████████████████|
+```
+
+Each line is a call, sorted by start time. Blocks show when each call was active - parallel calls appear as overlapping bars on different rows.
 
 ## Consensus for quality
 

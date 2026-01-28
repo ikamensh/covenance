@@ -2,22 +2,17 @@
 
 from __future__ import annotations
 
-import inspect
 import logging
 import os
-from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
 
 from pydantic import BaseModel
 
-logger = logging.getLogger(__name__)
+from ._caller_context import get_caller_info
 
-# Context variable for caller info - allows propagating caller location across threads
-_caller_info_ctx: ContextVar[tuple[str | None, str | None, int | None] | None] = ContextVar(
-    "caller_info", default=None
-)
+logger = logging.getLogger(__name__)
 
 DEFAULT_RECORDS_FILENAME = "llm_call_records.jsonl"
 RECORDS_DIR_ENV = "COVENANCE_RECORDS_DIR"
@@ -155,14 +150,14 @@ def set_records_dir(path: str | Path | None) -> None:
     """Enable or disable persistence of call records to a local folder."""
     from .client import _default_client
 
-    _default_client.get_record_store().set_records_dir(path)
+    _default_client.get_record_store()._records_dir = path
 
 
 def get_records_dir() -> Path | None:
     """Return the configured directory for local call record persistence."""
     from .client import _default_client
 
-    return _default_client.get_record_store().get_records_dir()
+    return _default_client.get_record_store()._records_dir
 
 
 def get_llm_call_records_path() -> Path | None:
@@ -184,39 +179,6 @@ def clear_records() -> None:
     from .client import _default_client
 
     _default_client.clear_records()
-
-
-def _get_caller_info_from_stack() -> tuple[str | None, str | None, int | None]:
-    """Walk stack to find first frame outside covenance package."""
-    stack = inspect.stack()
-    covenance_dir = Path(__file__).parent.resolve()
-
-    for frame in stack[1:]:  # skip this function itself
-        frame_path = Path(frame.filename).resolve()
-        try:
-            frame_path.relative_to(covenance_dir)
-        except ValueError:
-            # Not inside covenance - this is the external caller
-            return frame.function, frame_path.name, frame.lineno
-
-    return None, None, None
-
-
-def capture_caller_context() -> None:
-    """Capture current external caller and store in context variable.
-
-    Call this at entry points (like llm_consensus) before spawning threads.
-    Use copy_context() to propagate to threads via executor.submit(ctx.run, fn, args).
-    """
-    _caller_info_ctx.set(_get_caller_info_from_stack())
-
-
-def _get_caller_info() -> tuple[str | None, str | None, int | None]:
-    """Get caller info from context var if set, otherwise walk stack."""
-    ctx_info = _caller_info_ctx.get()
-    if ctx_info is not None:
-        return ctx_info
-    return _get_caller_info_from_stack()
 
 
 class TokenUsage(BaseModel):
@@ -244,7 +206,7 @@ def record_llm_call(
     duration = (ended_at - started_at).total_seconds()
     store = record_store or _default_client.get_record_store()
 
-    caller_function, caller_file, caller_line = _get_caller_info()
+    caller_function, caller_file, caller_line = get_caller_info()
 
     record = store.record_llm_call(
         model=model,
