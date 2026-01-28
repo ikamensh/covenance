@@ -2,7 +2,6 @@
 
 import time
 from datetime import UTC, datetime
-from enum import Enum
 from typing import TYPE_CHECKING, TypeVar
 
 from mistralai import Mistral
@@ -11,6 +10,7 @@ from mistralai.models import HTTPValidationError, SDKError
 from covenance._lazy_client import LazyClient
 from covenance.exceptions import StructuredOutputParsingError
 from covenance.keys import get_mistral_api_key, require_api_key
+from covenance.models import MistralModels
 from covenance.record import TokenUsage
 from covenance.retry import exponential_backoff
 
@@ -20,27 +20,8 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 
-class MistralModels(str, Enum):
-    """Mistral AI model identifiers.
-
-    See: https://docs.mistral.ai/getting-started/models/models_overview/
-    """
-
-    # Flagship models
-    large = "mistral-large-latest"
-    medium = "mistral-medium-latest"
-    small = "mistral-small-latest"
-
-    # Edge models
-    ministral_8b = "ministral-8b-latest"
-    ministral_3b = "ministral-3b-latest"
-
-    # Specialized
-    codestral = "codestral-latest"
-
-
 def _create_mistral_client() -> Mistral:
-    api_key = require_api_key(get_mistral_api_key(), "mistral", ["MISTRAL_API_KEY"])
+    api_key = require_api_key(get_mistral_api_key(), "mistral")
     return Mistral(api_key=api_key)
 
 

@@ -93,57 +93,36 @@ class Covenance:
         self,
         override: str | None,
         provider: str,
-        env_vars: list[str],
         getter: Callable[[], str | None],
     ) -> str:
-        return require_api_key(override or getter(), provider, env_vars)
+        return require_api_key(override or getter(), provider)
 
     def _create_openai_client(self) -> OpenAI:
-        api_key = self._require_key(
-            self._openai_api_key, "openai", ["OPENAI_API_KEY"], get_openai_api_key
-        )
+        api_key = self._require_key(self._openai_api_key, "openai", get_openai_api_key)
         return OpenAI(api_key=api_key)
 
     def _create_openrouter_client(self) -> OpenAI:
         api_key = self._require_key(
-            self._openrouter_api_key,
-            "openrouter",
-            ["OPENROUTER_API_KEY"],
-            get_openrouter_api_key,
+            self._openrouter_api_key, "openrouter", get_openrouter_api_key
         )
         return OpenAI(api_key=api_key, base_url=OPENROUTER_BASE_URL)
 
     def _create_gemini_client(self) -> genai.Client:
-        api_key = self._require_key(
-            self._gemini_api_key,
-            "gemini",
-            ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
-            get_gemini_api_key,
-        )
+        api_key = self._require_key(self._gemini_api_key, "gemini", get_gemini_api_key)
         return genai.Client(api_key=api_key)
 
     def _create_mistral_client(self) -> Mistral:
-        api_key = self._require_key(
-            self._mistral_api_key, "mistral", ["MISTRAL_API_KEY"], get_mistral_api_key
-        )
+        api_key = self._require_key(self._mistral_api_key, "mistral", get_mistral_api_key)
         return Mistral(api_key=api_key)
 
     def _create_anthropic_client(self) -> Anthropic:
         api_key = self._require_key(
-            self._anthropic_api_key,
-            "anthropic",
-            ["ANTHROPIC_API_KEY"],
-            get_anthropic_api_key,
+            self._anthropic_api_key, "anthropic", get_anthropic_api_key
         )
         return Anthropic(api_key=api_key)
 
     def _create_grok_client(self) -> OpenAI:
-        api_key = self._require_key(
-            self._grok_api_key,
-            "grok",
-            ["XAI_API_KEY", "GROK_API_KEY"],
-            get_grok_api_key,
-        )
+        api_key = self._require_key(self._grok_api_key, "grok", get_grok_api_key)
         return OpenAI(api_key=api_key, base_url=GROK_BASE_URL)
 
     def _build_clients(self) -> dict[str, Any]:

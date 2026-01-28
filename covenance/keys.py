@@ -7,6 +7,16 @@ from collections.abc import Iterable
 
 from dotenv import find_dotenv, load_dotenv
 
+# Registry mapping provider names to their environment variable names
+_API_KEY_ENV_VARS: dict[str, list[str]] = {
+    "openai": ["OPENAI_API_KEY"],
+    "anthropic": ["ANTHROPIC_API_KEY"],
+    "mistral": ["MISTRAL_API_KEY"],
+    "openrouter": ["OPENROUTER_API_KEY"],
+    "gemini": ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
+    "grok": ["XAI_API_KEY", "GROK_API_KEY"],
+}
+
 
 def _first_env(*names: str) -> str | None:
     for name in names:
@@ -28,9 +38,11 @@ def _get_key(env_vars: Iterable[str]) -> str | None:
     return _first_env(*env_vars)
 
 
-def require_api_key(key: str | None, provider: str, env_vars: Iterable[str]) -> str:
+def require_api_key(key: str | None, provider: str, env_vars: Iterable[str] | None = None) -> str:
     if key:
         return key
+    if env_vars is None:
+        env_vars = _API_KEY_ENV_VARS.get(provider, [])
     env_list = " or ".join(env_vars)
     raise RuntimeError(
         f"Missing {provider} API key. Please set {env_list} environment variable "
@@ -39,24 +51,24 @@ def require_api_key(key: str | None, provider: str, env_vars: Iterable[str]) -> 
 
 
 def get_openai_api_key() -> str | None:
-    return _get_key(["OPENAI_API_KEY"])
+    return _get_key(_API_KEY_ENV_VARS["openai"])
 
 
 def get_anthropic_api_key() -> str | None:
-    return _get_key(["ANTHROPIC_API_KEY"])
+    return _get_key(_API_KEY_ENV_VARS["anthropic"])
 
 
 def get_mistral_api_key() -> str | None:
-    return _get_key(["MISTRAL_API_KEY"])
+    return _get_key(_API_KEY_ENV_VARS["mistral"])
 
 
 def get_openrouter_api_key() -> str | None:
-    return _get_key(["OPENROUTER_API_KEY"])
+    return _get_key(_API_KEY_ENV_VARS["openrouter"])
 
 
 def get_gemini_api_key() -> str | None:
-    return _get_key(["GEMINI_API_KEY", "GOOGLE_API_KEY"])
+    return _get_key(_API_KEY_ENV_VARS["gemini"])
 
 
 def get_grok_api_key() -> str | None:
-    return _get_key(["XAI_API_KEY", "GROK_API_KEY"])
+    return _get_key(_API_KEY_ENV_VARS["grok"])

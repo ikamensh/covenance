@@ -10,7 +10,15 @@ import urllib.request
 
 import pytest
 
-from covenance.pricing import PRICING
+from covenance.models.google import GEMINI_PRICING
+from covenance.models.grok import GROK_PRICING
+from covenance.models.openai import OPENAI_PRICING
+
+PRICING = {
+    "openai": OPENAI_PRICING,
+    "gemini": GEMINI_PRICING,
+    "grok": GROK_PRICING,
+}
 
 pytestmark = pytest.mark.online
 
@@ -183,8 +191,6 @@ def test_grok_pricing_specifically(litellm_pricing):
         ("grok-3-mini", "xai/grok-3-mini", 0.30, 0.50),
     ]
 
-    from covenance.pricing import GROK_PRICING
-
     for our_name, litellm_name, expected_input, expected_output in grok_models:
         assert our_name in GROK_PRICING, f"Missing {our_name} in GROK_PRICING"
         our = GROK_PRICING[our_name]
@@ -229,7 +235,6 @@ def test_grok_pricing_against_pricepertoken(pricepertoken_xai):
     If both sources disagree with us, we're likely wrong.
     If only one disagrees, one of the sources may be stale.
     """
-    from covenance.pricing import GROK_PRICING
 
     # Build lookup by model_name
     ppt_by_name = {m["model_name"]: m for m in pricepertoken_xai}

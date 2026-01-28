@@ -2,7 +2,6 @@
 
 import time
 from datetime import UTC, datetime
-from enum import Enum
 from typing import TYPE_CHECKING, TypeVar
 
 from anthropic import Anthropic, APIError, RateLimitError
@@ -11,6 +10,7 @@ from pydantic import BaseModel
 from covenance._lazy_client import LazyClient
 from covenance.exceptions import StructuredOutputParsingError
 from covenance.keys import get_anthropic_api_key, require_api_key
+from covenance.models import ClaudeModels
 from covenance.record import TokenUsage
 from covenance.retry import exponential_backoff
 
@@ -21,9 +21,7 @@ T = TypeVar("T")
 
 
 def _create_anthropic_client() -> Anthropic:
-    api_key = require_api_key(
-        get_anthropic_api_key(), "anthropic", ["ANTHROPIC_API_KEY"]
-    )
+    api_key = require_api_key(get_anthropic_api_key(), "anthropic")
     return Anthropic(api_key=api_key)
 
 
@@ -31,18 +29,6 @@ client = LazyClient(_create_anthropic_client, label="anthropic")
 
 # Global verbose flag for retry logging
 VERBOSE = False
-
-
-class ClaudeModels(str, Enum):
-    """Anthropic Claude model identifiers.
-
-    See: https://docs.anthropic.com/claude/docs/models-overview
-    """
-
-    # Latest models
-    opus = "claude-opus-4-5"
-    sonnet = "claude-sonnet-4-5"
-    haiku = "claude-haiku-4-5"
 
 
 def _pydantic_to_json_schema(model: type[BaseModel]) -> dict:
@@ -107,7 +93,7 @@ def ask_anthropic[T](
     user_msg: str,
     response_type: type[T] | None = None,
     sys_msg: str | None = None,
-    model: str = ClaudeModels.haiku,
+    model: str = ClaudeModels.haiku45,
     *,
     client_override: Anthropic | None = None,
     record_store: "RecordStore | None" = None,

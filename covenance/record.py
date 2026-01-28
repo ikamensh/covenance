@@ -232,3 +232,64 @@ def record_llm_call(
         f"tokens={usage.total_tokens} (in={usage.prompt_tokens}, out={usage.completion_tokens}, cached={usage.cached_tokens}) "
         f"cost={cost_str} duration={duration:.2f}s"
     )
+
+
+def usage_summary(records: list[Record] | None = None) -> dict:
+    """Compute usage summary from records.
+
+    Args:
+        records: List of Record objects. If None, uses get_records().
+
+    Returns:
+        Dict with keys: calls, tokens_input, tokens_output, tokens_total,
+        cost_usd, models (set of "provider/model" strings).
+    """
+    if records is None:
+        records = get_records()
+
+    total_cost = 0.0
+    total_input = 0
+    total_output = 0
+    models_used: set[str] = set()
+
+    for record in records:
+        if record.cost_usd is not None:
+            total_cost += record.cost_usd
+        total_input += record.tokens_input
+        total_output += record.tokens_output
+        models_used.add(f"{record.provider}/{record.model}")
+
+    return {
+        "calls": len(records),
+        "tokens_input": total_input,
+        "tokens_output": total_output,
+        "tokens_total": total_input + total_output,
+        "cost_usd": total_cost,
+        "models": models_used,
+    }
+
+
+def print_usage(
+    records: list[Record] | None = None, title: str = "LLM Usage Summary"
+) -> None:
+    """Print a formatted usage summary to stdout.
+
+    Args:
+        records: List of Record objects. If None, uses get_records().
+        title: Header title for the summary block.
+    """
+    summary = usage_summary(records)
+
+    if summary["calls"] == 0:
+        print(f"\n{title}: No LLM calls recorded.")
+        return
+
+    print(f"\n{'=' * 50}")
+    print(title)
+    print("=" * 50)
+    print(f"  Calls: {summary['calls']}")
+    print(
+        f"  Tokens: {summary['tokens_total']:,} (in={summary['tokens_input']:,}, out={summary['tokens_output']:,})"
+    )
+    print(f"  Cost: ${summary['cost_usd']:.6f}")
+    print(f"  Models: {', '.join(sorted(summary['models']))}")

@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 from covenance import Covenance, get_default_client
-from covenance.record import clear_records, get_records, record_llm_call, TokenUsage
+from covenance.record import TokenUsage, clear_records, get_records, record_llm_call
 
 
 def _make_timestamps(duration_seconds: float) -> tuple[datetime, datetime]:

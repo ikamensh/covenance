@@ -2,7 +2,6 @@ import re
 import time
 import warnings
 from datetime import UTC, datetime
-from enum import Enum
 from typing import TYPE_CHECKING, TypeVar
 
 from google import genai  # pip install --upgrade google-genai
@@ -11,6 +10,7 @@ from google.genai.errors import ClientError
 from covenance._lazy_client import LazyClient
 from covenance.exceptions import StructuredOutputParsingError
 from covenance.keys import get_gemini_api_key, require_api_key
+from covenance.models import GeminiModels
 from covenance.record import TokenUsage
 
 if TYPE_CHECKING:
@@ -27,19 +27,8 @@ warnings.filterwarnings(
 T = TypeVar("T")
 
 
-class GeminiModels(str, Enum):
-    pro3_preview = "gemini-3-pro-preview"
-    flash3 = "gemini-3-flash-preview"
-    # «2.5» models are the current “stable” generation as of July 2025
-    pro = "gemini-2.5-pro"  # best reasoning/coding
-    flash = "gemini-2.5-flash"  # fast / inexpensive
-    flash_lite = "gemini-2.5-flash-lite"  # extra-cheap, small context
-
-
 def _create_gemini_client() -> genai.Client:
-    api_key = require_api_key(
-        get_gemini_api_key(), "gemini", ["GEMINI_API_KEY", "GOOGLE_API_KEY"]
-    )
+    api_key = require_api_key(get_gemini_api_key(), "gemini")
     return genai.Client(api_key=api_key)
 
 
@@ -108,7 +97,7 @@ def ask_gemini[T](
     user_msg: str,
     response_type: type[T] | None = None,
     sys_msg: str | None = None,
-    model: str = GeminiModels.flash.value,
+    model: str = GeminiModels.flash_25.value,
     *,
     client_override: genai.Client | None = None,
     record_store: "RecordStore | None" = None,
@@ -121,10 +110,10 @@ def ask_gemini[T](
     If response_type is str or None, performs a standard chat completion and returns the text.
 
     `response_type` can be:
-        • a Pydantic model                -> returns a model instance
-        • list[MyModel]                   -> returns the annotated container
-        • a builtin typing annotation     -> returns that type
-        • str                             -> returns plain text
+        - a Pydantic model                -> returns a model instance
+        - list[MyModel]                   -> returns the annotated container
+        - a builtin typing annotation     -> returns that type
+        - str                             -> returns plain text
     """
     max_attempts = 100
     api_client = client_override or client
@@ -172,7 +161,7 @@ def ask_gemini[T](
 
             if VERBOSE and attempt > 0:
                 print(
-                    f"[Gemini Retry] ✓ Successfully completed after {attempt + 1} attempt(s)"
+                    f"[Gemini Retry] Successfully completed after {attempt + 1} attempt(s)"
                 )
 
             if is_plain_text:
@@ -222,7 +211,7 @@ def ask_gemini[T](
             if attempt == max_attempts - 1:
                 # Last attempt failed, re-raise the exception
                 if VERBOSE:
-                    print(f"[Gemini Retry] ✗ Failed after {max_attempts} attempts")
+                    print(f"[Gemini Retry] Failed after {max_attempts} attempts")
                 raise
 
             wait_time = _parse_wait_time_from_error(e)

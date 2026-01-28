@@ -17,7 +17,9 @@ from .record import (
     clear_records,
     get_llm_call_records_dir,
     get_records,
+    print_usage,
     set_llm_call_records_dir,
+    usage_summary,
 )
 
 __all__ = [
@@ -33,4 +35,6 @@ __all__ = [
     "clear_records",
     "get_llm_call_records_dir",
     "set_llm_call_records_dir",
+    "usage_summary",
+    "print_usage",
 ]

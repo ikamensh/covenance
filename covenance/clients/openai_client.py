@@ -1,7 +1,6 @@
 import re
 import time
 from datetime import UTC, datetime
-from enum import Enum
 from typing import TYPE_CHECKING, TypeVar
 
 from openai import OpenAI, RateLimitError
@@ -9,6 +8,7 @@ from openai import OpenAI, RateLimitError
 from covenance._lazy_client import LazyClient
 from covenance.exceptions import StructuredOutputParsingError
 from covenance.keys import get_openai_api_key, require_api_key
+from covenance.models import OpenAIModels
 from covenance.record import TokenUsage
 
 if TYPE_CHECKING:
@@ -17,20 +17,8 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 
-class OpenaiModels(str, Enum):
-    o3 = "o3"
-    o3pro = "o3-pro"
-
-    gpt5pro = "gpt-5-pro"
-    gpt5 = "gpt-5"
-    gpt5mini = "gpt-5-mini"
-    gpt_5_nano = "gpt-5-nano"
-    gpt51 = "gpt-5.1"
-    gpt52 = "gpt-5.2"
-
-
 def _create_openai_client() -> OpenAI:
-    api_key = require_api_key(get_openai_api_key(), "openai", ["OPENAI_API_KEY"])
+    api_key = require_api_key(get_openai_api_key(), "openai")
     return OpenAI(api_key=api_key)
 
 
@@ -179,7 +167,7 @@ def ask_openai[T](
     user_msg: str,
     response_type: type[T] | None = None,
     sys_msg: str | None = None,
-    model: str = OpenaiModels.gpt5.value,
+    model: str = OpenAIModels.gpt5.value,
     *,
     client_override: OpenAI | None = None,
     record_store: "RecordStore | None" = None,

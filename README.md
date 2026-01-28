@@ -5,7 +5,7 @@ Unified, structured LLM calls for OpenAI, Gemini, Mistral, Anthropic, and OpenRo
 ## API keys
 Set environment variables:
 - OPENAI_API_KEY
-- GEMINI_API_KEY (or GOOGLE_API_KEY)
+- GOOGLE_API_KEY (or GEMINI_API_KEY)
 - MISTRAL_API_KEY
 - ANTHROPIC_API_KEY
 - OPENROUTER_API_KEY

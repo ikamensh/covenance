@@ -4,6 +4,7 @@ import pytest
 from pydantic import BaseModel
 
 import covenance
+from covenance.models import GrokModels, ClaudeModels
 
 pytestmark = pytest.mark.online
 
@@ -16,7 +17,8 @@ PROVIDERS = [
     ("gpt-5-nano", "openai"),
     ("gemini-2.5-flash-lite", "gemini"),
     ("mistral-small-latest", "mistral"),
-    ("grok-4-1-fast-non-reasoning", "grok"),  # non-reasoning for faster/cheaper tests
+    (ClaudeModels.haiku45, "anthropic"),
+    (GrokModels.grok3_mini, "grok"),  # non-reasoning for faster/cheaper tests
 ]
 
 
