@@ -23,9 +23,3 @@
 3. Push tag: `git push origin vX.Y.Z`
 4. Build and upload as above
 
-### TestPyPI (optional)
-- `python -m twine upload --repository testpypi dist/*`
-
-### PyPI credentials
-- Use a token with `TWINE_USERNAME=__token__` and `TWINE_PASSWORD=...`,
-  or configure `~/.pypirc`.
