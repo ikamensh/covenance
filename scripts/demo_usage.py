@@ -25,5 +25,3 @@ for record in get_records():
 
 print_usage()
 
-# from covenance import Covenance()
-

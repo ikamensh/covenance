@@ -300,15 +300,15 @@ def print_usage(
     tokens_input = summary["tokens_input"]
     tokens_cached = summary["tokens_cached"]
     tokens_output = summary["tokens_output"]
-    
+
     if tokens_cached > 0:
         tokens_new = tokens_input - tokens_cached
         in_part = f"In: {tokens_new:,} new + {tokens_cached:,} cached"
     else:
         in_part = f"In: {tokens_input:,}"
-    
+
     print(f"  Tokens: {summary['tokens_total']:,} ({in_part}, Out: {tokens_output:,})")
-    
+
     cost_usd = summary["cost_usd"]
     if cost_format == "cent" and cost_usd < 0.01:
         cost_cents = cost_usd * 100
@@ -321,5 +321,5 @@ def print_usage(
             print(f"  Cost: ${cost_usd:.4f}")
         else:
             print(f"  Cost: ${cost_usd:.2f}")
-    
+
     print(f"  Models: {', '.join(sorted(summary['models']))}")

@@ -38,7 +38,9 @@ def _get_key(env_vars: Iterable[str]) -> str | None:
     return _first_env(*env_vars)
 
 
-def require_api_key(key: str | None, provider: str, env_vars: Iterable[str] | None = None) -> str:
+def require_api_key(
+    key: str | None, provider: str, env_vars: Iterable[str] | None = None
+) -> str:
     if key:
         return key
     if env_vars is None:

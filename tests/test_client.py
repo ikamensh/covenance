@@ -78,3 +78,18 @@ def test_provider_routing():
         assert client._get_provider(model) == expected, (
             f"{model} should route to {expected}"
         )
+
+
+def test_explicit_key_triggers_immediate_client_creation():
+    """Explicit keys are validated at init by creating the SDK client immediately."""
+    client = Covenance(openai_api_key="sk-test-key-for-validation")
+
+    # The OpenAI client should already be instantiated (not lazy)
+    openai_lazy = client._clients["openai"]
+    assert openai_lazy._client is not None, (
+        "Explicit key should trigger immediate client creation"
+    )
+
+    # Other providers should still be lazy (no explicit key)
+    anthropic_lazy = client._clients["anthropic"]
+    assert anthropic_lazy._client is None, "No explicit key means client stays lazy"

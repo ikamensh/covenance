@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel
 
 import covenance
-from covenance.models import GrokModels, ClaudeModels
+from covenance.models import ClaudeModels, GrokModels
 
 pytestmark = pytest.mark.online
 
