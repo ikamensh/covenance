@@ -241,7 +241,7 @@ def usage_summary(records: list[Record] | None = None) -> dict:
         records: List of Record objects. If None, uses get_records().
 
     Returns:
-        Dict with keys: calls, tokens_input, tokens_output, tokens_total,
+        Dict with keys: calls, tokens_input, tokens_output, tokens_cached, tokens_total,
         cost_usd, models (set of "provider/model" strings).
     """
     if records is None:
@@ -250,6 +250,7 @@ def usage_summary(records: list[Record] | None = None) -> dict:
     total_cost = 0.0
     total_input = 0
     total_output = 0
+    total_cached = 0
     models_used: set[str] = set()
 
     for record in records:
@@ -257,12 +258,14 @@ def usage_summary(records: list[Record] | None = None) -> dict:
             total_cost += record.cost_usd
         total_input += record.tokens_input
         total_output += record.tokens_output
+        total_cached += record.tokens_cached
         models_used.add(f"{record.provider}/{record.model}")
 
     return {
         "calls": len(records),
         "tokens_input": total_input,
         "tokens_output": total_output,
+        "tokens_cached": total_cached,
         "tokens_total": total_input + total_output,
         "cost_usd": total_cost,
         "models": models_used,
@@ -270,13 +273,19 @@ def usage_summary(records: list[Record] | None = None) -> dict:
 
 
 def print_usage(
-    records: list[Record] | None = None, title: str = "LLM Usage Summary"
+    records: list[Record] | None = None,
+    title: str = "LLM Usage Summary",
+    cost_format: str = "plain",
 ) -> None:
     """Print a formatted usage summary to stdout.
 
     Args:
         records: List of Record objects. If None, uses get_records().
         title: Header title for the summary block.
+        cost_format: How to format costs. Options:
+            - "plain": Always show dollars with 2 decimals (default)
+            - "cent": Show cents with 3 decimals for costs < $0.01, dollars otherwise
+            - "exponential": Show exponential notation for costs < $0.01, dollars otherwise
     """
     summary = usage_summary(records)
 
@@ -288,8 +297,29 @@ def print_usage(
     print(title)
     print("=" * 50)
     print(f"  Calls: {summary['calls']}")
-    print(
-        f"  Tokens: {summary['tokens_total']:,} (in={summary['tokens_input']:,}, out={summary['tokens_output']:,})"
-    )
-    print(f"  Cost: ${summary['cost_usd']:.6f}")
+    tokens_input = summary["tokens_input"]
+    tokens_cached = summary["tokens_cached"]
+    tokens_output = summary["tokens_output"]
+    
+    if tokens_cached > 0:
+        tokens_new = tokens_input - tokens_cached
+        in_part = f"In: {tokens_new:,} new + {tokens_cached:,} cached"
+    else:
+        in_part = f"In: {tokens_input:,}"
+    
+    print(f"  Tokens: {summary['tokens_total']:,} ({in_part}, Out: {tokens_output:,})")
+    
+    cost_usd = summary["cost_usd"]
+    if cost_format == "cent" and cost_usd < 0.01:
+        cost_cents = cost_usd * 100
+        print(f"  Cost: {cost_cents:.3f}¢")
+    elif cost_format == "exponential" and cost_usd < 0.01:
+        print(f"  Cost: ${cost_usd:.2e}")
+    else:
+        # Plain format: show 4 decimals for small numbers, 2 decimals otherwise
+        if cost_usd > 0 and cost_usd < 0.01:
+            print(f"  Cost: ${cost_usd:.4f}")
+        else:
+            print(f"  Cost: ${cost_usd:.2f}")
+    
     print(f"  Models: {', '.join(sorted(summary['models']))}")
