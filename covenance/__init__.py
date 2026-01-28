@@ -8,9 +8,7 @@ except ImportError:
 from .client import (
     Covenance,
     ask_llm,
-    get_default_client,
     llm_consensus,
-    set_rate_limiter_verbose,
 )
 from .record import (
     Record,
@@ -27,8 +25,6 @@ __all__ = [
     "ask_llm",
     "llm_consensus",
     "Covenance",
-    "get_default_client",
-    "set_rate_limiter_verbose",
     # Call records
     "Record",
     "get_records",

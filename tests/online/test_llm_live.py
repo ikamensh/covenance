@@ -14,7 +14,7 @@ class MathResponse(BaseModel):
 
 
 PROVIDERS = [
-    ("gpt-5-nano", "openai"),
+    ("gpt-4.1-nano", "openai"),
     ("gemini-2.5-flash-lite", "gemini"),
     ("mistral-small-latest", "mistral"),
     (ClaudeModels.haiku45, "anthropic"),

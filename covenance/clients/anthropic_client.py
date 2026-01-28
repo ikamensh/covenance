@@ -97,6 +97,7 @@ def ask_anthropic[T](
     *,
     client_override: Anthropic | None = None,
     record_store: "RecordStore | None" = None,
+    temperature: float | None = None,
 ) -> T:
     """Call Anthropic API with structured output using tools parameter.
 
@@ -170,6 +171,9 @@ def ask_anthropic[T](
 
             if sys_msg is not None:
                 api_kwargs["system"] = sys_msg
+
+            if temperature is not None:
+                api_kwargs["temperature"] = temperature
 
             response = api_client.messages.create(**api_kwargs)
 

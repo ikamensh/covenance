@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 import time
 from datetime import UTC, datetime
@@ -9,10 +11,9 @@ from covenance._lazy_client import LazyClient
 from covenance.exceptions import StructuredOutputParsingError
 from covenance.keys import get_openai_api_key, require_api_key
 from covenance.models import OpenAIModels
-from covenance.record import TokenUsage
 
 if TYPE_CHECKING:
-    from covenance.record import RecordStore
+    from covenance.record import RecordStore, TokenUsage
 
 T = TypeVar("T")
 
@@ -68,6 +69,8 @@ def _extract_openai_compatible_usage(
     response, model: str, provider: str = "openai"
 ) -> TokenUsage:
     """Extract token usage from OpenAI-compatible response."""
+    from covenance.record import TokenUsage
+
     if not hasattr(response, "usage") or response.usage is None:
         p_name = "OpenAI" if provider == "openai" else provider.capitalize()
         raise AttributeError(f"{p_name} response missing usage info for {model}")
@@ -97,7 +100,8 @@ def ask_openai_compatible_structured[T](
     sys_msg: str | None = None,
     model: str = "gpt-4o",
     provider: str = "openai",
-    record_store: "RecordStore | None" = None,
+    record_store: RecordStore | None = None,
+    temperature: float | None = None,
 ) -> T:
     """Execute structured call against an OpenAI-compatible API with retries."""
     max_attempts = 100
@@ -116,6 +120,7 @@ def ask_openai_compatible_structured[T](
                     model=model,
                     input=user_msg,
                     instructions=sys_msg,
+                    temperature=temperature,
                 )
                 output = response.output_text
             else:
@@ -124,6 +129,7 @@ def ask_openai_compatible_structured[T](
                     input=user_msg,
                     text_format=response_type,
                     instructions=sys_msg,
+                    temperature=temperature,
                 )
                 output = response.output_parsed
 
@@ -170,7 +176,8 @@ def ask_openai[T](
     model: str = OpenAIModels.gpt5.value,
     *,
     client_override: OpenAI | None = None,
-    record_store: "RecordStore | None" = None,
+    record_store: RecordStore | None = None,
+    temperature: float | None = None,
 ) -> T:
     """Call OpenAI API with automatic retry."""
     api_client = client_override or client
@@ -182,6 +189,7 @@ def ask_openai[T](
         model=model,
         provider="openai",
         record_store=record_store,
+        temperature=temperature,
     )
 
 

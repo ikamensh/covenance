@@ -101,6 +101,7 @@ def ask_gemini[T](
     *,
     client_override: genai.Client | None = None,
     record_store: "RecordStore | None" = None,
+    temperature: float | None = None,
 ) -> T:
     """Call Gemini API with automatic retry on rate limit errors.
 
@@ -131,6 +132,9 @@ def ask_gemini[T](
 
     if sys_msg:
         cfg["system_instruction"] = sys_msg
+
+    if temperature is not None:
+        cfg["temperature"] = temperature
 
     for attempt in range(max_attempts):
         try:

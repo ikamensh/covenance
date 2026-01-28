@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 import logging
 import os
+from contextvars import ContextVar, copy_context
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
@@ -12,6 +13,11 @@ from threading import Lock
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
+
+# Context variable for caller info - allows propagating caller location across threads
+_caller_info_ctx: ContextVar[tuple[str | None, str | None, int | None] | None] = ContextVar(
+    "caller_info", default=None
+)
 
 DEFAULT_RECORDS_FILENAME = "llm_call_records.jsonl"
 RECORDS_DIR_ENV = "COVENANCE_RECORDS_DIR"
@@ -145,49 +151,72 @@ def get_env_records_dir() -> str | None:
     return os.getenv(RECORDS_DIR_ENV)
 
 
-def _default_client():
-    from .client import get_default_client
-
-    return get_default_client()
-
-
 def set_llm_call_records_dir(path: str | Path | None) -> None:
     """Enable or disable persistence of call records to a local folder."""
-    _default_client().get_record_store().set_llm_call_records_dir(path)
+    from .client import _default_client
+
+    _default_client.get_record_store().set_llm_call_records_dir(path)
 
 
 def get_llm_call_records_dir() -> Path | None:
     """Return the configured directory for local call record persistence."""
-    return _default_client().get_record_store().get_llm_call_records_dir()
+    from .client import _default_client
+
+    return _default_client.get_record_store().get_llm_call_records_dir()
 
 
 def get_llm_call_records_path() -> Path | None:
     """Return the JSONL file path for persisted call records, if enabled."""
-    return _default_client().get_record_store().get_llm_call_records_path()
+    from .client import _default_client
+
+    return _default_client.get_record_store().get_llm_call_records_path()
 
 
 def get_records() -> list[Record]:
     """Return a copy of all call records captured in this process."""
-    return _default_client().get_records()
+    from .client import _default_client
+
+    return _default_client.get_records()
 
 
 def clear_records() -> None:
     """Clear in-memory call records (does not delete persisted files)."""
-    _default_client().clear_records()
+    from .client import _default_client
+
+    _default_client.clear_records()
 
 
-def _get_caller_info(skip_frames: int = 4) -> tuple[str | None, str | None, int | None]:
-    """Extract caller info from the call stack.
-
-    Returns (function_name, filename, lineno) of the caller.
-    Best-effort: returns (None, None, None) if stack is too short.
-    """
+def _get_caller_info_from_stack() -> tuple[str | None, str | None, int | None]:
+    """Walk stack to find first frame outside covenance package."""
     stack = inspect.stack()
-    if len(stack) > skip_frames:
-        frame = stack[skip_frames]
-        filepath = Path(frame.filename)
-        return frame.function, filepath.name, frame.lineno
+    covenance_dir = Path(__file__).parent.resolve()
+
+    for frame in stack[1:]:  # skip this function itself
+        frame_path = Path(frame.filename).resolve()
+        try:
+            frame_path.relative_to(covenance_dir)
+        except ValueError:
+            # Not inside covenance - this is the external caller
+            return frame.function, frame_path.name, frame.lineno
+
     return None, None, None
+
+
+def capture_caller_context() -> None:
+    """Capture current external caller and store in context variable.
+
+    Call this at entry points (like llm_consensus) before spawning threads.
+    Use copy_context() to propagate to threads via executor.submit(ctx.run, fn, args).
+    """
+    _caller_info_ctx.set(_get_caller_info_from_stack())
+
+
+def _get_caller_info() -> tuple[str | None, str | None, int | None]:
+    """Get caller info from context var if set, otherwise walk stack."""
+    ctx_info = _caller_info_ctx.get()
+    if ctx_info is not None:
+        return ctx_info
+    return _get_caller_info_from_stack()
 
 
 class TokenUsage(BaseModel):
@@ -210,8 +239,10 @@ def record_llm_call(
     record_store: RecordStore | None = None,
 ) -> None:
     """Record an LLM call to the given store (or default) and log it."""
+    from .client import _default_client
+
     duration = (ended_at - started_at).total_seconds()
-    store = record_store or _default_client().get_record_store()
+    store = record_store or _default_client.get_record_store()
 
     caller_function, caller_file, caller_line = _get_caller_info()
 

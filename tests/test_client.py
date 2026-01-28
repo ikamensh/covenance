@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from covenance import Covenance, get_default_client
+from covenance import Covenance
 from covenance.record import TokenUsage, clear_records, get_records, record_llm_call
 
 
@@ -30,8 +30,6 @@ def test_default_instance_shares_global_record_store():
         ended_at=ended_at,
     )
 
-    default_client = get_default_client()
-    assert len(default_client.get_records()) == 1
     assert len(get_records()) == 1
 
 

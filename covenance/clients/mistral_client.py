@@ -78,6 +78,7 @@ def ask_mistral[T](
     *,
     client_override: Mistral | None = None,
     record_store: "RecordStore | None" = None,
+    temperature: float | None = None,
 ) -> T:
     """Call Mistral API with structured output using native parse method.
 
@@ -124,6 +125,7 @@ def ask_mistral[T](
                 response = api_client.chat.complete(
                     model=model,
                     messages=messages,
+                    temperature=temperature,
                 )
             else:
                 # Use native structured output via chat.parse
@@ -131,7 +133,7 @@ def ask_mistral[T](
                     model=model,
                     messages=messages,
                     response_format=response_type,
-                    # temperature=0,
+                    temperature=temperature,
                 )
 
             ended_at = datetime.now(UTC)  # Record absolute end time

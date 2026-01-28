@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from covenance.models import GeminiModels
 from covenance import print_usage
 
-response = ask_llm("who is David Blayne", model="gpt-5-nano")
+response = ask_llm("who is David Blayne", model="gpt-4.1-nano")
 print(response)
 
 class Evaluation(BaseModel):

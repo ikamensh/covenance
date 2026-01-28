@@ -30,16 +30,12 @@ class NestedItem(BaseModel):
 # Provider models
 # Use mini 2/3 of the time and nano 1/3 to distribute load across TPM limits
 MODELS = [
-    "gpt-5-mini",
-    "gpt-5-mini",
-    "gpt-5-nano",
+    "gpt-4.1-nano",
     "gemini-2.5-flash-lite",
     "mistral-small-latest",
 ]
 MODELS_NO_DICT = [
-    "gpt-5-mini",
-    "gpt-5-mini",
-    "gpt-5-nano",
+    "gpt-4.1-nano",
     "gemini-2.5-flash-lite",
 ]  # OpenAI/Gemini reject dict types
 
