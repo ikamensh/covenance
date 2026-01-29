@@ -23,10 +23,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y tesseract-ocr
       
-      - name: Install dependencies
+      - name: Install core package only (no providers)
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e .
+      
+      - name: Verify import without provider SDKs
+        run: |
+          python -c "from covenance import ask_llm, Covenance, print_usage; print('Import OK')"
+      
+      - name: Install all dependencies
+        run: |
+          pip install -e ".[all,dev]"
       
       - name: Run pytest
         run: pytest --cov --cov-branch --cov-report=xml

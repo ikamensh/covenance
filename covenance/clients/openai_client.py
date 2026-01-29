@@ -5,20 +5,23 @@ import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, TypeVar
 
-from openai import OpenAI, RateLimitError
-
 from covenance._lazy_client import LazyClient
-from covenance.exceptions import StructuredOutputParsingError
+from covenance.exceptions import StructuredOutputParsingError, require_provider
 from covenance.keys import get_openai_api_key, require_api_key
 from covenance.models import OpenAIModels
 
 if TYPE_CHECKING:
+    from openai import OpenAI
+
     from covenance.record import RecordStore, TokenUsage
 
 T = TypeVar("T")
 
 
-def _create_openai_client() -> OpenAI:
+def _create_openai_client() -> "OpenAI":
+    require_provider("openai")
+    from openai import OpenAI
+
     api_key = require_api_key(get_openai_api_key(), "openai")
     return OpenAI(api_key=api_key)
 
@@ -29,7 +32,7 @@ client = LazyClient(_create_openai_client, label="openai")
 VERBOSE = False
 
 
-def _parse_wait_time_from_error(error: RateLimitError) -> float:
+def _parse_wait_time_from_error(error: Exception) -> float:
     """Parse wait time from OpenAI RateLimitError message.
 
     The error message typically contains: "Please try again in X.XXXs"
@@ -94,16 +97,18 @@ def _extract_openai_compatible_usage(
 
 
 def ask_openai_compatible_structured[T](
-    client: OpenAI,
+    client: "OpenAI",
     user_msg: str,
     response_type: type[T] | None = None,
     sys_msg: str | None = None,
     model: str = "gpt-4o",
     provider: str = "openai",
-    record_store: RecordStore | None = None,
+    record_store: "RecordStore | None" = None,
     temperature: float | None = None,
 ) -> T:
     """Execute structured call against an OpenAI-compatible API with retries."""
+    from openai import RateLimitError
+
     max_attempts = 100
     total_tpm_wait = 0.0
     started_at = datetime.now(UTC)
@@ -175,12 +180,12 @@ def ask_openai[T](
     sys_msg: str | None = None,
     model: str = OpenAIModels.gpt5.value,
     *,
-    client_override: OpenAI | None = None,
-    record_store: RecordStore | None = None,
+    client_override: "OpenAI | None" = None,
+    record_store: "RecordStore | None" = None,
     temperature: float | None = None,
 ) -> T:
     """Call OpenAI API with automatic retry."""
-    api_client = client_override or client
+    api_client = client_override or client  # type: ignore[assignment]
     return ask_openai_compatible_structured(
         client=api_client,
         user_msg=user_msg,

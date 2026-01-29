@@ -4,23 +4,25 @@ import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, TypeVar
 
-from mistralai import Mistral
-from mistralai.models import HTTPValidationError, SDKError
-
 from covenance._lazy_client import LazyClient
-from covenance.exceptions import StructuredOutputParsingError
+from covenance.exceptions import StructuredOutputParsingError, require_provider
 from covenance.keys import get_mistral_api_key, require_api_key
 from covenance.models import MistralModels
 from covenance.record import TokenUsage
 from covenance.retry import exponential_backoff
 
 if TYPE_CHECKING:
+    from mistralai import Mistral
+
     from covenance.record import RecordStore
 
 T = TypeVar("T")
 
 
-def _create_mistral_client() -> Mistral:
+def _create_mistral_client() -> "Mistral":
+    require_provider("mistral")
+    from mistralai import Mistral
+
     api_key = require_api_key(get_mistral_api_key(), "mistral")
     return Mistral(api_key=api_key)
 
@@ -76,7 +78,7 @@ def ask_mistral[T](
     sys_msg: str | None = None,
     model: str = MistralModels.small.value,
     *,
-    client_override: Mistral | None = None,
+    client_override: "Mistral | None" = None,
     record_store: "RecordStore | None" = None,
     temperature: float | None = None,
 ) -> T:
@@ -86,21 +88,11 @@ def ask_mistral[T](
     output directly. Retries up to 100 times when encountering rate limit errors.
 
     If response_type is str or None, performs a standard chat completion and returns the text.
-
-    Args:
-        user_msg: User message/prompt
-        response_type: Pydantic model class for structured output, or str/None for plain text
-        sys_msg: Optional system message/instructions
-        model: Mistral model identifier (defaults to mistral-small-latest)
-
-    Returns:
-        Parsed Pydantic object of type T, or str if response_type is str
-
-    Raises:
-        Exception: After max_attempts retries on rate limit errors
     """
+    from mistralai.models import HTTPValidationError, SDKError
+
     max_attempts = 100
-    api_client = client_override or client
+    api_client = client_override or client  # type: ignore[assignment]
 
     # Build messages array
     messages = []

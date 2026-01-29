@@ -4,23 +4,27 @@ import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, TypeVar
 
-from anthropic import Anthropic, APIError, RateLimitError
 from pydantic import BaseModel
 
 from covenance._lazy_client import LazyClient
-from covenance.exceptions import StructuredOutputParsingError
+from covenance.exceptions import StructuredOutputParsingError, require_provider
 from covenance.keys import get_anthropic_api_key, require_api_key
 from covenance.models import ClaudeModels
 from covenance.record import TokenUsage
 from covenance.retry import exponential_backoff
 
 if TYPE_CHECKING:
+    from anthropic import Anthropic
+
     from covenance.record import RecordStore
 
 T = TypeVar("T")
 
 
-def _create_anthropic_client() -> Anthropic:
+def _create_anthropic_client() -> "Anthropic":
+    require_provider("anthropic")
+    from anthropic import Anthropic
+
     api_key = require_api_key(get_anthropic_api_key(), "anthropic")
     return Anthropic(api_key=api_key)
 
@@ -95,7 +99,7 @@ def ask_anthropic[T](
     sys_msg: str | None = None,
     model: str = ClaudeModels.haiku45,
     *,
-    client_override: Anthropic | None = None,
+    client_override: "Anthropic | None" = None,
     record_store: "RecordStore | None" = None,
     temperature: float | None = None,
 ) -> T:
@@ -105,22 +109,11 @@ def ask_anthropic[T](
     to get structured output. Retries up to 100 times when encountering rate limit errors.
 
     If response_type is str, performs a standard chat completion and returns the text.
-
-    Args:
-        user_msg: User message/prompt
-        response_type: Pydantic model class for structured output, or str/None for plain text
-        sys_msg: Optional system message/instructions
-        model: Claude model identifier (defaults to claude-3-5-haiku)
-
-    Returns:
-        Parsed Pydantic object of type T, or str if response_type is str
-
-    Raises:
-        StructuredOutputParsingError: If parsing fails
-        Exception: After max_attempts retries on rate limit errors
     """
+    from anthropic import APIError, RateLimitError
+
     max_attempts = 100
-    api_client = client_override or client
+    api_client = client_override or client  # type: ignore[assignment]
 
     # Handle plain text output
     is_plain_text = response_type is str or response_type is None

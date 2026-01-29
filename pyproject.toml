@@ -32,15 +32,21 @@ classifiers = [
     "Topic :: Utilities",
 ]
 dependencies = [
-    "anthropic",
-    "openai",
-    "mistralai",
-    "google-genai",
     "pydantic",
     "python-dotenv",
 ]
 
 [project.optional-dependencies]
+openai = ["openai"]
+anthropic = ["anthropic"]
+google = ["google-genai"]
+mistral = ["mistralai"]
+all = [
+    "openai",
+    "anthropic",
+    "google-genai",
+    "mistralai",
+]
 dev = [
     "build",
     "pre-commit",

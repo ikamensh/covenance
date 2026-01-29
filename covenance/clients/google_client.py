@@ -4,16 +4,15 @@ import warnings
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, TypeVar
 
-from google import genai  # pip install --upgrade google-genai
-from google.genai.errors import ClientError
-
 from covenance._lazy_client import LazyClient
-from covenance.exceptions import StructuredOutputParsingError
+from covenance.exceptions import StructuredOutputParsingError, require_provider
 from covenance.keys import get_gemini_api_key, require_api_key
 from covenance.models import GeminiModels
 from covenance.record import TokenUsage
 
 if TYPE_CHECKING:
+    from google import genai
+
     from covenance.record import RecordStore
 
 # Suppress warning about non-text parts (thought_signature) in Gemini responses.
@@ -27,7 +26,10 @@ warnings.filterwarnings(
 T = TypeVar("T")
 
 
-def _create_gemini_client() -> genai.Client:
+def _create_gemini_client() -> "genai.Client":
+    require_provider("google")
+    from google import genai
+
     api_key = require_api_key(get_gemini_api_key(), "gemini")
     return genai.Client(api_key=api_key)
 
@@ -38,7 +40,7 @@ client = LazyClient(_create_gemini_client, label="gemini")
 VERBOSE = False
 
 
-def _parse_wait_time_from_error(error: ClientError) -> float:
+def _parse_wait_time_from_error(error: Exception) -> float:
     """Parse wait time from Gemini ClientError message.
 
     The error message typically contains: "Please retry in X.XXXs."
@@ -99,7 +101,7 @@ def ask_gemini[T](
     sys_msg: str | None = None,
     model: str = GeminiModels.flash_25.value,
     *,
-    client_override: genai.Client | None = None,
+    client_override: "genai.Client | None" = None,
     record_store: "RecordStore | None" = None,
     temperature: float | None = None,
 ) -> T:
@@ -109,15 +111,11 @@ def ask_gemini[T](
     parsing the wait time from the error message and waiting accordingly.
 
     If response_type is str or None, performs a standard chat completion and returns the text.
-
-    `response_type` can be:
-        - a Pydantic model                -> returns a model instance
-        - list[MyModel]                   -> returns the annotated container
-        - a builtin typing annotation     -> returns that type
-        - str                             -> returns plain text
     """
+    from google.genai.errors import ClientError
+
     max_attempts = 100
-    api_client = client_override or client
+    api_client = client_override or client  # type: ignore[assignment]
     total_tpm_wait = 0.0  # Accumulate TPM retry wait time
     started_at = datetime.now(UTC)  # Record absolute start time
 
