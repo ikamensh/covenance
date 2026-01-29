@@ -21,6 +21,7 @@ print(is_positive)  # True/False
 
 - **Structured outputs that work** - Same code, any provider. Pydantic models, primitives, lists, tuples.
 - **Zero routing code** - Model name determines provider automatically (`gemini-*`, `claude-*`, `gpt-*`)
+- **Convenience** - you get TPM (Token Per Minute) limit retries automatically, as well as if the LLM fails to return the type you have requested.
 - **Visibility: Know what you're calling and spending** - Every call logged with token counts and cost. `print_usage()` for totals, `print_call_timeline()` for a visual waterfall.
 
 ## Installation
