@@ -10,8 +10,11 @@ Type-safe LLM outputs across any provider. Track every call and its cost.
 from covenance import ask_llm
 
 review = ask_llm("Write a short review of Inception", model="gpt-4.1-nano")
-is_positive = ask_llm(f"Is this review positive? '{review}'", model="gemini-2.5-flash-lite", response_type=bool)
-print(is_positive)  # True
+is_positive = ask_llm(
+    "Is this review positive? '{review}'", 
+    model="gemini-2.5-flash-lite", 
+    response_type=bool)
+print(is_positive)  # True/False
 ```
 
 ## Usecases
