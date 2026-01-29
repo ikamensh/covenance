@@ -1,5 +1,9 @@
 # covenance
 
+[![PyPI version](https://img.shields.io/pypi/v/covenance)](https://pypi.org/project/covenance/)
+[![Tests](https://github.com/ikamensh/covenance/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/ikamensh/covenance/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/ikamensh/covenance/branch/main/graph/badge.svg)](https://codecov.io/gh/ikamensh/covenance)
+
 Type-safe LLM outputs across any provider. Track every call and its cost.
 
 ```python
@@ -18,8 +22,19 @@ print(is_positive)  # True
 
 ## Installation
 
+Install only the providers you need:
+
 ```bash
-pip install covenance
+pip install covenance[openai]      # OpenAI, Grok, OpenRouter
+pip install covenance[anthropic]   # Anthropic Claude
+pip install covenance[google]      # Google Gemini
+pip install covenance[mistral]     # Mistral
+
+# Multiple providers
+pip install covenance[openai,anthropic]
+
+# All providers
+pip install covenance[all]
 ```
 
 ## Structured outputs
