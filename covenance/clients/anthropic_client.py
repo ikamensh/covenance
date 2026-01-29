@@ -125,7 +125,7 @@ def ask_anthropic[T](
                     "betas": ["structured-outputs-2025-11-13"],
                     "output_format": response_type,
                     # max number allowed without streaming API
-                    "max_tokens": 21_000
+                    "max_tokens": 21_000,
                 }
                 if sys_msg is not None:
                     # Beta API requires system as list of content blocks

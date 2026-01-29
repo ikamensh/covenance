@@ -136,7 +136,9 @@ def test_tuple_mixed(unblock_llm, model):
     + [
         pytest.param(
             "mistral-small-latest",
-            marks=pytest.mark.flaky(reruns=2),  # Mistral structured output is probabilistic
+            marks=pytest.mark.flaky(
+                reruns=2
+            ),  # Mistral structured output is probabilistic
         )
     ],
 )
