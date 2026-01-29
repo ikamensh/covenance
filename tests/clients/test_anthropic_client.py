@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from covenance.clients.anthropic_client import (
     _USE_STRUCTURED_OUTPUTS_BETA,
     _extract_anthropic_usage,
+    _is_rate_limit_error,
     _parse_wait_time_from_error,
     ask_anthropic,
     set_rate_limiter_verbose,
@@ -26,9 +27,19 @@ class SampleResponse(BaseModel):
     value: int
 
 
+def test_is_rate_limit_error_detects_rate_limit():
+    """Property: detects rate limit from RateLimitError or string indicators."""
+    rate_limit_err = RateLimitError(
+        message="Rate limit", response=MagicMock(status_code=429), body={}
+    )
+    assert _is_rate_limit_error(rate_limit_err) is True
+    assert _is_rate_limit_error(Exception("Error 429 too many")) is True
+    assert _is_rate_limit_error(Exception("rate limit exceeded")) is True
+    assert _is_rate_limit_error(Exception("Some other error")) is False
+
+
 def test_parse_wait_time_from_error_with_retry_info():
     """Property test: extracts wait time from error message when present."""
-    # Create a mock error with the message
     error = Exception("Rate limit exceeded. Please retry after 5 seconds")
     wait_time = _parse_wait_time_from_error(error)
 
@@ -296,3 +307,105 @@ def test_ask_anthropic_with_client_override(mock_sleep, mock_record, mock_client
     assert result == "Response"
     override_client.messages.create.assert_called_once()
     mock_client.messages.create.assert_not_called()
+
+
+@pytest.mark.skipif(
+    _USE_STRUCTURED_OUTPUTS_BETA, reason="Only test tool-use fallback when beta is not available"
+)
+@patch("covenance.clients.anthropic_client.client")
+@patch("covenance.record.record_llm_call", autospec=True)
+@patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
+def test_ask_anthropic_tool_use_fallback(mock_sleep, mock_record, mock_client):
+    """Property test: structured output uses tool-use when beta is not available."""
+    # Mock response with tool_use block
+    tool_use_block = MagicMock()
+    tool_use_block.type = "tool_use"
+    tool_use_block.name = "SampleResponse"
+    tool_use_block.input = {"answer": "test", "value": 42}
+
+    mock_response = MagicMock()
+    mock_response.content = [tool_use_block]
+    mock_response.usage = MagicMock()
+    mock_response.usage.input_tokens = 10
+    mock_response.usage.output_tokens = 5
+    mock_response.usage.cache_read_input_tokens = None
+
+    mock_client.messages.create.return_value = mock_response
+
+    result = ask_anthropic("Hello", response_type=SampleResponse)
+
+    assert isinstance(result, SampleResponse)
+    assert result.answer == "test"
+    assert result.value == 42
+
+    # Verify tool-use was called
+    call_kwargs = mock_client.messages.create.call_args[1]
+    assert "tools" in call_kwargs
+    assert "tool_choice" in call_kwargs
+    assert call_kwargs["tool_choice"]["name"] == "SampleResponse"
+    mock_record.assert_called_once()
+
+
+@pytest.mark.skipif(
+    _USE_STRUCTURED_OUTPUTS_BETA, reason="Only test tool-use fallback when beta is not available"
+)
+@patch("covenance.clients.anthropic_client.client")
+@patch("covenance.record.record_llm_call", autospec=True)
+@patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
+def test_ask_anthropic_tool_use_missing_block_raises(mock_sleep, mock_record, mock_client):
+    """Property test: missing tool_use block raises StructuredOutputParsingError."""
+    # Mock response without tool_use block
+    mock_response = MagicMock()
+    mock_response.content = [MagicMock(type="text", text="Some text")]
+    mock_response.usage = MagicMock()
+    mock_response.usage.input_tokens = 10
+    mock_response.usage.output_tokens = 5
+    mock_response.usage.cache_read_input_tokens = None
+
+    mock_client.messages.create.return_value = mock_response
+
+    with pytest.raises(StructuredOutputParsingError, match="No tool_use block"):
+        ask_anthropic("Hello", response_type=SampleResponse)
+
+
+@patch("covenance.clients.anthropic_client.client")
+@patch("covenance.record.record_llm_call", autospec=True)
+@patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
+def test_ask_anthropic_retries_on_unexpected_rate_limit_error(
+    mock_sleep, mock_record, mock_client
+):
+    """Property test: best-effort retry on unexpected Exception with rate limit indicators."""
+    mock_response = MagicMock()
+    mock_response.content = [MagicMock(text="Success")]
+    mock_response.usage = MagicMock()
+    mock_response.usage.input_tokens = 10
+    mock_response.usage.output_tokens = 5
+    mock_response.usage.cache_read_input_tokens = None
+
+    # Simulate unexpected exception with rate limit indicator in message
+    unexpected_error = Exception("Connection failed: 429 too many requests")
+    mock_client.messages.create.side_effect = [unexpected_error, mock_response]
+
+    result = ask_anthropic("Hello", response_type=str)
+
+    assert result == "Success"
+    assert mock_client.messages.create.call_count == 2
+    assert mock_sleep.call_count == 1
+
+
+@patch("covenance.clients.anthropic_client.client")
+@patch("covenance.record.record_llm_call", autospec=True)
+@patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
+def test_ask_anthropic_unexpected_non_rate_limit_error_raises_immediately(
+    mock_sleep, mock_record, mock_client
+):
+    """Property test: unexpected non-rate-limit errors raise immediately."""
+    unexpected_error = Exception("Some random network error")
+    mock_client.messages.create.side_effect = unexpected_error
+
+    with pytest.raises(Exception, match="network error"):
+        ask_anthropic("Hello", response_type=str)
+
+    # Should not retry
+    assert mock_client.messages.create.call_count == 1
+    assert mock_sleep.call_count == 0

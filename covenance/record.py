@@ -235,7 +235,7 @@ def usage_summary(records: list[Record] | None = None) -> dict:
 
     Returns:
         Dict with keys: calls, tokens_input, tokens_output, tokens_cached, tokens_total,
-        cost_usd, models (set of "provider/model" strings).
+        cost_usd, models (set of "provider/model" strings), has_openrouter (bool).
     """
     if records is None:
         records = get_records()
@@ -245,6 +245,7 @@ def usage_summary(records: list[Record] | None = None) -> dict:
     total_output = 0
     total_cached = 0
     models_used: set[str] = set()
+    has_openrouter = False
 
     for record in records:
         if record.cost_usd is not None:
@@ -253,6 +254,8 @@ def usage_summary(records: list[Record] | None = None) -> dict:
         total_output += record.tokens_output
         total_cached += record.tokens_cached
         models_used.add(f"{record.provider}/{record.model}")
+        if record.provider == "openrouter":
+            has_openrouter = True
 
     return {
         "calls": len(records),
@@ -262,6 +265,7 @@ def usage_summary(records: list[Record] | None = None) -> dict:
         "tokens_total": total_input + total_output,
         "cost_usd": total_cost,
         "models": models_used,
+        "has_openrouter": has_openrouter,
     }
 
 
@@ -303,17 +307,23 @@ def print_usage(
     print(f"  Tokens: {summary['tokens_total']:,} ({in_part}, Out: {tokens_output:,})")
 
     cost_usd = summary["cost_usd"]
+    cost_line = "  Cost: "
     if cost_format == "cent" and cost_usd < 0.01:
         cost_cents = cost_usd * 100
-        print(f"  Cost: {cost_cents:.3f}¢")
+        cost_line += f"{cost_cents:.3f}¢"
     elif cost_format == "exponential" and cost_usd < 0.01:
-        print(f"  Cost: ${cost_usd:.2e}")
+        cost_line += f"${cost_usd:.2e}"
     else:
         # Plain format: show 4 decimals for small numbers, 2 decimals otherwise
         if cost_usd > 0 and cost_usd < 0.01:
-            print(f"  Cost: ${cost_usd:.4f}")
+            cost_line += f"${cost_usd:.4f}"
         else:
-            print(f"  Cost: ${cost_usd:.2f}")
+            cost_line += f"${cost_usd:.2f}"
+    
+    if summary.get("has_openrouter", False):
+        cost_line += " (excluding OpenRouter calls)"
+    
+    print(cost_line)
 
     print(f"  Models: {', '.join(sorted(summary['models']))}")
 

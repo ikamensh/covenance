@@ -17,8 +17,8 @@ print(is_positive)  # True
 ## Usecases
 
 - **Structured outputs that work** - Same code, any provider. Pydantic models, primitives, lists, tuples.
-- **Zero routing config** - Model name determines provider automatically (`gemini-*`, `claude-*`, `gpt-*`)
-- **Know what you're spending** - Every call logged with token counts and cost. `print_usage()` for totals, `print_call_timeline()` for a visual waterfall.
+- **Zero routing code** - Model name determines provider automatically (`gemini-*`, `claude-*`, `gpt-*`)
+- **Visibility: Know what you're calling and spending** - Every call logged with token counts and cost. `print_usage()` for totals, `print_call_timeline()` for a visual waterfall.
 
 ## Installation
 

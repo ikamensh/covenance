@@ -149,6 +149,23 @@ class TestUsageSummary:
         summary = usage_summary(records)
         assert summary["cost_usd"] == pytest.approx(0.001)
 
+    def test_tracks_openrouter_calls(self):
+        """OpenRouter calls are tracked in has_openrouter flag."""
+        records = [
+            _make_record(provider="openrouter", model="meta-llama/llama-3.1-8b", cost=None),
+            _make_record(provider="openai", model="gpt-4o", cost=0.001),
+        ]
+        summary = usage_summary(records)
+        assert summary["has_openrouter"] is True
+
+    def test_no_openrouter_when_none_present(self):
+        """has_openrouter is False when no OpenRouter calls exist."""
+        records = [
+            _make_record(provider="openai", model="gpt-4o", cost=0.001),
+        ]
+        summary = usage_summary(records)
+        assert summary["has_openrouter"] is False
+
     def test_cached_tokens_tracked(self):
         """Cached tokens are tracked separately."""
         records = [_make_record(tokens_in=100, tokens_cached=30)]
@@ -197,6 +214,23 @@ class TestPrintUsage:
         print_usage(records, cost_format="exponential")
         captured = capsys.readouterr()
         assert "e" in captured.out.lower()  # Scientific notation
+
+    def test_openrouter_exclusion_message(self, capsys):
+        """When OpenRouter calls exist, cost line mentions exclusion."""
+        records = [
+            _make_record(provider="openrouter", model="meta-llama/llama-3.1-8b", cost=None),
+            _make_record(provider="openai", model="gpt-4o", cost=0.05),
+        ]
+        print_usage(records)
+        captured = capsys.readouterr()
+        assert "excluding OpenRouter calls" in captured.out
+
+    def test_no_openrouter_no_exclusion_message(self, capsys):
+        """When no OpenRouter calls exist, no exclusion message."""
+        records = [_make_record(provider="openai", model="gpt-4o", cost=0.05)]
+        print_usage(records)
+        captured = capsys.readouterr()
+        assert "excluding OpenRouter calls" not in captured.out
 
 
 class TestLoadRecordsFromJsonl:

@@ -199,6 +199,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     total_output = 0
     count = 0
     models_used: set[str] = set()
+    has_openrouter = False
 
     for line in records_file.read_text().strip().split("\n"):
         if not line:
@@ -209,6 +210,8 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         total_input += record.tokens_input
         total_output += record.tokens_output
         models_used.add(f"{record.provider}/{record.model}")
+        if record.provider == "openrouter":
+            has_openrouter = True
         count += 1
 
     if count == 0:
@@ -219,7 +222,10 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     terminalreporter.write_line(
         f"  Tokens: {total_input + total_output:,} (in={total_input:,}, out={total_output:,})"
     )
-    terminalreporter.write_line(f"  Cost: ${total_cost:.6f}")
+    cost_line = f"  Cost: ${total_cost:.6f}"
+    if has_openrouter:
+        cost_line += " (excluding OpenRouter calls)"
+    terminalreporter.write_line(cost_line)
     terminalreporter.write_line(f"  Models: {', '.join(sorted(models_used))}")
 
 
