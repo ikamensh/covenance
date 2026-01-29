@@ -52,6 +52,7 @@ dev = [
     "pre-commit",
     "pytest",
     "pytest-cov",
+    "pytest-rerunfailures",
     "twine",
     "ruff",
     "pytest-xdist",
@@ -86,6 +87,7 @@ python_functions = ["test_*"]
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     "online: marks tests that make real LLM calls (enable with '-m online')",
+    "unstable_external: marks tests using unreliable external APIs (enable with '--run-unstable-external')",
 ]
 filterwarnings = [
     "ignore::pydantic.PydanticDeprecatedSince212",

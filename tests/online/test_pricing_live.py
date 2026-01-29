@@ -228,6 +228,7 @@ GROK_TO_PRICEPERTOKEN = {
 }
 
 
+@pytest.mark.unstable_external
 def test_grok_pricing_against_pricepertoken(pricepertoken_xai):
     """Verify Grok pricing against pricepertoken.com.
 
@@ -274,6 +275,7 @@ def test_grok_pricing_against_pricepertoken(pricepertoken_xai):
         )
 
 
+@pytest.mark.unstable_external
 def test_sources_agree_on_grok(litellm_pricing, pricepertoken_xai):
     """Check that LiteLLM and pricepertoken.com agree on Grok pricing.
 

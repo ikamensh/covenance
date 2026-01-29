@@ -1,10 +1,13 @@
-"""Anthropic Claude client with structured output support and automatic retry."""
+"""Anthropic Claude client with structured output support and automatic retry.
 
+Uses the structured outputs beta (constrained decoding) when SDK >= 0.74.1,
+providing guaranteed schema-valid JSON. Falls back to tool-use for older SDKs.
+"""
+
+import re
 import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, TypeVar
-
-from pydantic import BaseModel
 
 from covenance._lazy_client import LazyClient
 from covenance.exceptions import StructuredOutputParsingError, require_provider
@@ -19,6 +22,16 @@ if TYPE_CHECKING:
     from covenance.record import RecordStore
 
 T = TypeVar("T")
+
+# Check SDK version for structured outputs beta support (requires >= 0.74.1)
+_USE_STRUCTURED_OUTPUTS_BETA = False
+try:
+    from anthropic import __version__ as _anthropic_version
+
+    _major, _minor, _patch = map(int, _anthropic_version.split(".")[:3])
+    _USE_STRUCTURED_OUTPUTS_BETA = (_major, _minor, _patch) >= (0, 74, 1)
+except Exception:
+    pass  # Fall back to tool-use if version check fails
 
 
 def _create_anthropic_client() -> "Anthropic":
@@ -35,26 +48,6 @@ client = LazyClient(_create_anthropic_client, label="anthropic")
 VERBOSE = False
 
 
-def _pydantic_to_json_schema(model: type[BaseModel]) -> dict:
-    """Convert a Pydantic model to JSON schema for Anthropic tools.
-
-    Args:
-        model: Pydantic model class
-
-    Returns:
-        JSON schema dictionary compatible with Anthropic tools API
-    """
-    # Get the JSON schema from Pydantic
-    schema = model.model_json_schema()
-    # Anthropic expects the schema directly, not wrapped in a $defs structure
-    # Remove $defs and inline references if present
-    if "$defs" in schema:
-        # For simplicity, we'll use the schema as-is and let Anthropic handle it
-        # In practice, Anthropic should handle $ref references
-        pass
-    return schema
-
-
 def _parse_wait_time_from_error(error: Exception) -> float | None:
     """Parse wait time from Anthropic rate limit error message.
 
@@ -69,10 +62,6 @@ def _parse_wait_time_from_error(error: Exception) -> float | None:
         Wait time in seconds if found, None otherwise
     """
     error_str = str(error)
-    # Look for common patterns in error messages
-    # Anthropic may include retry-after information
-    import re
-
     match = re.search(r"retry.*?(\d+(?:\.\d+)?)\s*(?:seconds?|s)", error_str.lower())
     if match:
         try:
@@ -103,47 +92,23 @@ def ask_anthropic[T](
     record_store: "RecordStore | None" = None,
     temperature: float | None = None,
 ) -> T:
-    """Call Anthropic API with structured output using tools parameter.
+    """Call Anthropic API with structured output.
 
-    Uses Anthropic's tools parameter with JSON schema derived from Pydantic model
-    to get structured output. Retries up to 100 times when encountering rate limit errors.
+    Uses the structured outputs beta (constrained decoding, guaranteed valid JSON)
+    when SDK >= 0.74.1. Retries on rate limit errors.
 
-    If response_type is str, performs a standard chat completion and returns the text.
+    If response_type is str or None, returns plain text.
     """
     from anthropic import APIError, RateLimitError
 
     max_attempts = 100
     api_client = client_override or client  # type: ignore[assignment]
-
-    # Handle plain text output
     is_plain_text = response_type is str or response_type is None
+    use_beta = _USE_STRUCTURED_OUTPUTS_BETA and not is_plain_text
 
-    if not is_plain_text:
-        # Convert Pydantic model to JSON schema
-        json_schema = _pydantic_to_json_schema(response_type)  # type: ignore[arg-type]
-
-        # Create tool definition for structured output
-        tool_name = (
-            response_type.__name__
-            if hasattr(response_type, "__name__")
-            else "structured_output"
-        )
-        tools = [
-            {
-                "name": tool_name,
-                "description": f"Generate output matching the {tool_name} schema",
-                "input_schema": json_schema,
-            }
-        ]
-    else:
-        tools = None
-        tool_name = None
-
-    # Build messages array
     messages = [{"role": "user", "content": user_msg}]
-
-    total_tpm_wait = 0.0  # Accumulate TPM retry wait time
-    started_at = datetime.now(UTC)  # Record absolute start time
+    total_tpm_wait = 0.0
+    started_at = datetime.now(UTC)
 
     for attempt in range(max_attempts):
         try:
@@ -152,25 +117,36 @@ def ask_anthropic[T](
                     f"[Anthropic Retry] Attempt {attempt + 1}/{max_attempts} for model {model}"
                 )
 
-            # Call Anthropic API
-            api_kwargs = {
-                "model": model,
-                "max_tokens": 4096,
-                "messages": messages,
-            }
-            if not is_plain_text:
-                api_kwargs["tools"] = tools
-                api_kwargs["tool_choice"] = {"type": "tool", "name": tool_name}
+            if use_beta:
+                # Structured outputs beta: guaranteed schema-valid JSON
+                kwargs = {
+                    "model": model,
+                    "messages": messages,
+                    "betas": ["structured-outputs-2025-11-13"],
+                    "output_format": response_type,
+                    # max number allowed without streaming API
+                    "max_tokens": 21_000
+                }
+                if sys_msg is not None:
+                    # Beta API requires system as list of content blocks
+                    kwargs["system"] = [{"type": "text", "text": sys_msg}]
+                if temperature is not None:
+                    kwargs["temperature"] = temperature
+                response = api_client.beta.messages.parse(**kwargs)
+            else:
+                # Plain text
+                kwargs = {
+                    "model": model,
+                    "max_tokens": 4096,
+                    "messages": messages,
+                }
+                if sys_msg is not None:
+                    kwargs["system"] = sys_msg
+                if temperature is not None:
+                    kwargs["temperature"] = temperature
+                response = api_client.messages.create(**kwargs)
 
-            if sys_msg is not None:
-                api_kwargs["system"] = sys_msg
-
-            if temperature is not None:
-                api_kwargs["temperature"] = temperature
-
-            response = api_client.messages.create(**api_kwargs)
-
-            ended_at = datetime.now(UTC)  # Record absolute end time
+            ended_at = datetime.now(UTC)
             usage = _extract_anthropic_usage(response, model=model)
 
             from covenance.record import record_llm_call
@@ -190,45 +166,22 @@ def ask_anthropic[T](
                     f"[Anthropic Retry] ✓ Successfully completed after {attempt + 1} attempt(s)"
                 )
 
-            if is_plain_text:
-                if not response.content:
+            if use_beta:
+                # Beta returns parsed_output directly
+                if response.parsed_output is None:
                     raise StructuredOutputParsingError(
-                        f"Anthropic API returned empty content. "
+                        f"Anthropic API returned None parsed_output. "
                         f"Model: {model}, response_type: {response_type}"
                     )
-                return response.content[0].text  # type: ignore[return-value]
+                return response.parsed_output
 
-            # Extract structured output from tool use
+            # Plain text response
             if not response.content:
                 raise StructuredOutputParsingError(
                     f"Anthropic API returned empty content. "
                     f"Model: {model}, response_type: {response_type}"
                 )
-
-            # Find the tool use block
-            tool_use_block = None
-            for block in response.content:
-                if block.type == "tool_use" and block.name == tool_name:
-                    tool_use_block = block
-                    break
-
-            if tool_use_block is None:
-                raise StructuredOutputParsingError(
-                    f"Anthropic API did not return tool_use block. "
-                    f"Model: {model}, response_type: {response_type}, Content: {response.content}"
-                )
-
-            # Parse the input as JSON and validate against Pydantic model
-            try:
-                parsed_data = tool_use_block.input
-                # Validate and create Pydantic instance
-                parsed = response_type(**parsed_data)
-                return parsed
-            except Exception as e:
-                raise StructuredOutputParsingError(
-                    f"Failed to parse Anthropic response as {response_type.__name__}: {e}. "
-                    f"Model: {model}, Input: {tool_use_block.input}"
-                ) from e
+            return response.content[0].text  # type: ignore[return-value]
 
         except RateLimitError as e:
             if attempt == max_attempts - 1:
@@ -236,39 +189,23 @@ def ask_anthropic[T](
                     print(f"[Anthropic Retry] ✗ Failed after {max_attempts} attempts")
                 raise
 
-            # Try to parse wait time from error message first
             explicit_wait = _parse_wait_time_from_error(e)
-            if explicit_wait is not None:
-                wait_time = explicit_wait
-                if VERBOSE:
-                    print(
-                        f"[Anthropic Retry] Rate limit error (attempt {attempt + 1}/{max_attempts}): "
-                        f"using explicit wait time {wait_time:.2f}s from error message"
-                    )
-            else:
-                # Use exponential backoff with jitter
-                wait_time = exponential_backoff(attempt)
-                if VERBOSE:
-                    print(
-                        f"[Anthropic Retry] Rate limit error (attempt {attempt + 1}/{max_attempts}): "
-                        f"exponential backoff wait {wait_time:.2f}s"
-                    )
+            wait_time = explicit_wait if explicit_wait else exponential_backoff(attempt)
 
             if VERBOSE:
-                error_str = str(e)
-                if len(error_str) <= 300:
-                    print(f"[Anthropic Retry] Error details: {error_str}")
+                print(
+                    f"[Anthropic Retry] Rate limit (attempt {attempt + 1}/{max_attempts}): "
+                    f"waiting {wait_time:.2f}s"
+                )
 
             time.sleep(wait_time)
             total_tpm_wait += wait_time
 
         except APIError as e:
-            # Handle other API errors
             error_str = str(e)
             is_rate_limit = "429" in error_str or "rate limit" in error_str.lower()
 
             if not is_rate_limit:
-                # Not a rate limit error, re-raise immediately
                 if VERBOSE:
                     print(f"[Anthropic Retry] Non-rate-limit error: {type(e).__name__}")
                 raise
@@ -278,41 +215,13 @@ def ask_anthropic[T](
                     print(f"[Anthropic Retry] ✗ Failed after {max_attempts} attempts")
                 raise
 
-            # Try to parse wait time from error message first
             explicit_wait = _parse_wait_time_from_error(e)
-            if explicit_wait is not None:
-                wait_time = explicit_wait
-            else:
-                wait_time = exponential_backoff(attempt)
+            wait_time = explicit_wait if explicit_wait else exponential_backoff(attempt)
 
             if VERBOSE:
                 print(
-                    f"[Anthropic Retry] Rate limit error (attempt {attempt + 1}/{max_attempts}): "
-                    f"waiting {wait_time:.2f}s before retry"
-                )
-
-            time.sleep(wait_time)
-            total_tpm_wait += wait_time
-
-        except Exception as e:
-            # Handle other potential errors
-            error_str = str(e)
-            is_rate_limit = "429" in error_str or "rate limit" in error_str.lower()
-
-            if not is_rate_limit or attempt == max_attempts - 1:
-                if VERBOSE:
-                    print(
-                        f"[Anthropic Retry] ✗ Unexpected error or max attempts reached: {type(e).__name__}"
-                    )
-                raise
-
-            # Use exponential backoff
-            wait_time = exponential_backoff(attempt)
-
-            if VERBOSE:
-                print(
-                    f"[Anthropic Retry] Unexpected rate limit error (attempt {attempt + 1}/{max_attempts}): "
-                    f"waiting {wait_time:.2f}s before retry"
+                    f"[Anthropic Retry] Rate limit (attempt {attempt + 1}/{max_attempts}): "
+                    f"waiting {wait_time:.2f}s"
                 )
 
             time.sleep(wait_time)
@@ -354,7 +263,7 @@ if __name__ == "__main__":
     result = ask_anthropic(
         user_msg="Review the movie 'Inception' by Christopher Nolan.",
         response_type=MovieReview,
-        model=ClaudeModels.haiku,
+        model=ClaudeModels.haiku45,
     )
 
     print(f"Movie: {result.movie_title}")

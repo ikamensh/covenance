@@ -1,5 +1,12 @@
-"""Mistral AI client with structured output support and automatic retry."""
+"""Mistral AI client with structured output support and automatic retry.
 
+Note on structured output reliability:
+Mistral uses probabilistic JSON generation, not constrained decoding like OpenAI.
+This means structured output may occasionally produce invalid JSON and require retry.
+Each retry attempt is recorded honestly as a separate LLM call.
+"""
+
+import json
 import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, TypeVar
@@ -72,6 +79,9 @@ def set_rate_limiter_verbose(verbose: bool) -> None:
     VERBOSE = verbose
 
 
+JSON_PARSE_MAX_RETRIES = 3  # Retries for Mistral's probabilistic JSON output
+
+
 def ask_mistral[T](
     user_msg: str,
     response_type: type[T] | None = None,
@@ -86,6 +96,11 @@ def ask_mistral[T](
 
     Uses Mistral's native client.chat.parse() method to get structured Pydantic
     output directly. Retries up to 100 times when encountering rate limit errors.
+
+    Note: Mistral uses probabilistic JSON generation (not constrained decoding),
+    so structured output may occasionally fail with JSONDecodeError. We retry
+    up to JSON_PARSE_MAX_RETRIES times for such errors. Failed parse attempts
+    cannot be recorded (no token info available from SDK on parse failure).
 
     If response_type is str or None, performs a standard chat completion and returns the text.
     """
@@ -102,6 +117,7 @@ def ask_mistral[T](
 
     total_tpm_wait = 0.0  # Accumulate TPM retry wait time
     started_at = datetime.now(UTC)  # Record absolute start time
+    json_parse_attempts = 0  # Track JSON parse retries separately
 
     is_plain_text = response_type is str or response_type is None
 
@@ -166,6 +182,27 @@ def ask_mistral[T](
                     f"Model: {model}, response_type: {response_type}"
                 )
             return parsed
+
+        except json.JSONDecodeError as e:
+            # Mistral's probabilistic JSON output occasionally produces invalid JSON
+            json_parse_attempts += 1
+            if json_parse_attempts >= JSON_PARSE_MAX_RETRIES:
+                if VERBOSE:
+                    print(
+                        f"[Mistral Retry] JSON parse failed {json_parse_attempts} times, giving up"
+                    )
+                raise StructuredOutputParsingError(
+                    f"Mistral returned invalid JSON after {json_parse_attempts} attempts. "
+                    f"Last error: {e}. Model: {model}, response_type: {response_type}"
+                ) from e
+
+            if VERBOSE:
+                print(
+                    f"[Mistral Retry] JSON parse error (attempt {json_parse_attempts}/{JSON_PARSE_MAX_RETRIES}): {e}"
+                )
+            # Brief pause before retry
+            time.sleep(0.5)
+            continue
 
         except (SDKError, HTTPValidationError) as e:
             # SDKError is the main rate limit error type from Mistral API

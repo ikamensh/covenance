@@ -36,10 +36,29 @@ def _raise_llm_error(*args, **kwargs):
     )
 
 
+def pytest_addoption(parser):
+    """Register --run-online flag to enable online tests without filtering."""
+    parser.addoption(
+        "--run-online",
+        action="store_true",
+        default=False,
+        help="Enable online tests (real API calls) without filtering to only online tests",
+    )
+    parser.addoption(
+        "--run-unstable-external",
+        action="store_true",
+        default=False,
+        help="Enable tests that depend on unreliable third-party APIs",
+    )
+
+
 def _online_tests_enabled(config: pytest.Config) -> bool:
-    """Check if online tests are enabled via -m online flag."""
+    """Check if online tests are enabled via --run-online flag or -m online marker."""
+    # --run-online enables online tests without filtering
+    if config.option.run_online:
+        return True
+    # -m online both enables and filters to online tests only
     markexpr = (config.option.markexpr or "").strip()
-    # Check if markexpr is exactly "online" or contains "online" (for expressions like "online and not slow")
     return markexpr == "online" or (markexpr and "online" in markexpr.lower())
 
 
@@ -74,10 +93,18 @@ def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
     run_online = _online_tests_enabled(config)
+    run_unstable = config.option.run_unstable_external
     # Use empty reason to avoid cluttering output - we'll print a single summary instead
     skip_reason = ""
     skipped_online_count = 0
+    skipped_unstable_count = 0
     for item in items:
+        # Skip unstable_external tests unless explicitly enabled
+        if item.get_closest_marker("unstable_external") and not run_unstable:
+            item.add_marker(pytest.mark.skip(reason=skip_reason))
+            skipped_unstable_count += 1
+            continue
+
         if item.get_closest_marker("online"):
             if not run_online:
                 item.add_marker(pytest.mark.skip(reason=skip_reason))
@@ -86,8 +113,9 @@ def pytest_collection_modifyitems(
                 # Add unblock_llm fixture to online tests so they can make real calls
                 # Use request.getfixturevalue to ensure it runs before the test
                 item.add_marker(pytest.mark.usefixtures("unblock_llm"))
-    # Store count for terminal summary (since -rfE filters skipped from stats)
+    # Store counts for terminal summary (since -rfE filters skipped from stats)
     config._skipped_online_count = skipped_online_count
+    config._skipped_unstable_count = skipped_unstable_count
 
 
 @pytest.fixture
@@ -144,13 +172,19 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         return
 
     # Print single summary line for skipped online tests
-    if not _online_tests_enabled(config):
-        skipped_online = getattr(config, "_skipped_online_count", 0)
+    skipped_online = getattr(config, "_skipped_online_count", 0)
+    skipped_unstable = getattr(config, "_skipped_unstable_count", 0)
+    if skipped_online > 0 or skipped_unstable > 0:
+        terminalreporter.write_sep("=", "short test summary info")
         if skipped_online > 0:
-            terminalreporter.write_sep("=", "short test summary info")
             terminalreporter.write_line(
                 f"SKIPPED [{skipped_online}] online tests (run with: pytest -m online)"
             )
+        if skipped_unstable > 0:
+            terminalreporter.write_line(
+                f"SKIPPED [{skipped_unstable}] unstable_external tests (run with: --run-unstable-external)"
+            )
+    if not _online_tests_enabled(config):
         return
 
     # Print LLM cost summary for online tests

@@ -1,4 +1,7 @@
-"""Unit tests for Anthropic client implementation with mocked dependencies."""
+"""Unit tests for Anthropic client implementation with mocked dependencies.
+
+Tests cover both the structured outputs beta path (SDK >= 0.74.1) and plain text.
+"""
 
 from unittest.mock import MagicMock, patch
 
@@ -7,9 +10,9 @@ from anthropic import APIError, RateLimitError
 from pydantic import BaseModel
 
 from covenance.clients.anthropic_client import (
+    _USE_STRUCTURED_OUTPUTS_BETA,
     _extract_anthropic_usage,
     _parse_wait_time_from_error,
-    _pydantic_to_json_schema,
     ask_anthropic,
     set_rate_limiter_verbose,
 )
@@ -21,16 +24,6 @@ class SampleResponse(BaseModel):
 
     answer: str
     value: int
-
-
-def test_pydantic_to_json_schema():
-    """Property test: converts Pydantic model to JSON schema."""
-    schema = _pydantic_to_json_schema(SampleResponse)
-
-    assert isinstance(schema, dict)
-    assert "properties" in schema or "$defs" in schema or "type" in schema
-    # Should contain fields from SampleResponse
-    assert "answer" in str(schema) or "properties" in schema
 
 
 def test_parse_wait_time_from_error_with_retry_info():
@@ -95,32 +88,30 @@ def test_ask_anthropic_plain_text(mock_sleep, mock_record, mock_client):
     mock_record.assert_called_once()
 
 
+@pytest.mark.skipif(
+    not _USE_STRUCTURED_OUTPUTS_BETA, reason="Requires SDK >= 0.74.1 for beta API"
+)
 @patch("covenance.clients.anthropic_client.client")
 @patch("covenance.record.record_llm_call", autospec=True)
 @patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
 def test_ask_anthropic_structured_output(mock_sleep, mock_record, mock_client):
-    """Property test: structured output requests return Pydantic model."""
-    # Mock response with tool_use block
-    mock_tool_use = MagicMock()
-    mock_tool_use.type = "tool_use"
-    mock_tool_use.name = "SampleResponse"
-    mock_tool_use.input = {"answer": "test", "value": 42}
-
+    """Property test: structured output requests return Pydantic model via beta API."""
+    # Mock response from beta.messages.parse
     mock_response = MagicMock()
-    mock_response.content = [mock_tool_use]
+    mock_response.parsed_output = SampleResponse(answer="test", value=42)
     mock_response.usage = MagicMock()
     mock_response.usage.input_tokens = 10
     mock_response.usage.output_tokens = 5
     mock_response.usage.cache_read_input_tokens = None
 
-    mock_client.messages.create.return_value = mock_response
+    mock_client.beta.messages.parse.return_value = mock_response
 
     result = ask_anthropic("Hello", response_type=SampleResponse)
 
     assert isinstance(result, SampleResponse)
     assert result.answer == "test"
     assert result.value == 42
-    mock_client.messages.create.assert_called_once()
+    mock_client.beta.messages.parse.assert_called_once()
 
 
 @patch("covenance.clients.anthropic_client.client")
@@ -205,21 +196,24 @@ def test_ask_anthropic_empty_content_raises(mock_sleep, mock_record, mock_client
         ask_anthropic("Hello", response_type=str)
 
 
+@pytest.mark.skipif(
+    not _USE_STRUCTURED_OUTPUTS_BETA, reason="Requires SDK >= 0.74.1 for beta API"
+)
 @patch("covenance.clients.anthropic_client.client")
 @patch("covenance.record.record_llm_call", autospec=True)
 @patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
-def test_ask_anthropic_missing_tool_use_raises(mock_sleep, mock_record, mock_client):
-    """Property test: missing tool_use block raises StructuredOutputParsingError."""
+def test_ask_anthropic_none_parsed_output_raises(mock_sleep, mock_record, mock_client):
+    """Property test: None parsed_output raises StructuredOutputParsingError."""
     mock_response = MagicMock()
-    mock_response.content = [MagicMock(type="text", text="Not a tool use")]
+    mock_response.parsed_output = None
     mock_response.usage = MagicMock()
     mock_response.usage.input_tokens = 10
     mock_response.usage.output_tokens = 5
     mock_response.usage.cache_read_input_tokens = None
 
-    mock_client.messages.create.return_value = mock_response
+    mock_client.beta.messages.parse.return_value = mock_response
 
-    with pytest.raises(StructuredOutputParsingError, match="tool_use block"):
+    with pytest.raises(StructuredOutputParsingError, match="None parsed_output"):
         ask_anthropic("Hello", response_type=SampleResponse)
 
 

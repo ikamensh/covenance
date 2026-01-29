@@ -135,6 +135,21 @@ Provider is determined by model name prefix:
 | `grok-*` | xAI Grok |
 | `org/model` (contains `/`) | OpenRouter |
 
+### Structured output reliability
+
+Providers differ in how they enforce JSON schema compliance:
+
+| Provider | Method | Guarantee |
+|----------|--------|-----------|
+| OpenAI | [Constrained decoding](https://openai.com/index/introducing-structured-outputs-in-the-api) | 100% schema-valid JSON |
+| Google Gemini | [Controlled generation](https://ai.google.dev/gemini-api/docs/structured-output) | 100% schema-valid JSON |
+| Grok | [Constrained decoding](https://docs.x.ai/docs/guides/structured-outputs) | 100% schema-valid JSON |
+| Anthropic | [Structured outputs beta](https://docs.anthropic.com/en/docs/build-with-claude/structured-outputs) | 100% schema-valid JSON* |
+| Mistral | [Best-effort](https://docs.mistral.ai/capabilities/structured_output) | Probabilistic |
+| OpenRouter | Varies | Depends on underlying model |
+
+*Anthropic structured outputs requires SDK >= 0.74.1 (uses `anthropic-beta: structured-outputs-2025-11-13`). Mistral uses probabilistic generation. Covenance retries automatically (up to 3 times) on JSON parse errors for Mistral.
+
 ## API keys
 
 Set environment variables for the providers you use:
