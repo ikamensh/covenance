@@ -309,7 +309,8 @@ def test_ask_anthropic_with_client_override(mock_sleep, mock_record, mock_client
 
 
 @pytest.mark.skipif(
-    _USE_STRUCTURED_OUTPUTS_BETA, reason="Only test tool-use fallback when beta is not available"
+    _USE_STRUCTURED_OUTPUTS_BETA,
+    reason="Only test tool-use fallback when beta is not available",
 )
 @patch("covenance.clients.anthropic_client.client")
 @patch("covenance.record.record_llm_call", autospec=True)
@@ -346,12 +347,15 @@ def test_ask_anthropic_tool_use_fallback(mock_sleep, mock_record, mock_client):
 
 
 @pytest.mark.skipif(
-    _USE_STRUCTURED_OUTPUTS_BETA, reason="Only test tool-use fallback when beta is not available"
+    _USE_STRUCTURED_OUTPUTS_BETA,
+    reason="Only test tool-use fallback when beta is not available",
 )
 @patch("covenance.clients.anthropic_client.client")
 @patch("covenance.record.record_llm_call", autospec=True)
 @patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
-def test_ask_anthropic_tool_use_missing_block_raises(mock_sleep, mock_record, mock_client):
+def test_ask_anthropic_tool_use_missing_block_raises(
+    mock_sleep, mock_record, mock_client
+):
     """Property test: missing tool_use block raises StructuredOutputParsingError."""
     # Mock response without tool_use block
     mock_response = MagicMock()

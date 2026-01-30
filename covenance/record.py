@@ -316,18 +316,26 @@ def print_usage(
     title: str = "LLM Usage Summary",
     cost_format: str = "plain",
     show_retries: bool = False,
+    all_clients: bool = False,
 ) -> None:
     """Print a formatted usage summary to stdout.
 
     Args:
-        records: List of Record objects. If None, uses get_records().
+        records: List of Record objects. If None, uses get_records() or all client records.
         title: Header title for the summary block.
         cost_format: How to format costs. Options:
             - "plain": Always show dollars with 2 decimals (default)
             - "cent": Show cents with 3 decimals for costs < $0.01, dollars otherwise
             - "exponential": Show exponential notation for costs < $0.01, dollars otherwise
         show_retries: If True, show retry statistics (TPM, structured output, wasted tokens).
+        all_clients: If True and records is None, aggregate records from all Covenance clients.
     """
+    if records is None and all_clients:
+        from .client import get_all_records
+        records = get_all_records()
+        if title == "LLM Usage Summary":
+            title = "LLM Usage Summary (all clients)"
+    
     summary = usage_summary(records)
 
     if summary["calls"] == 0:
@@ -363,10 +371,10 @@ def print_usage(
             cost_line += f"${cost_usd:.4f}"
         else:
             cost_line += f"${cost_usd:.2f}"
-    
+
     if summary.get("has_openrouter", False):
         cost_line += " (excluding OpenRouter calls)"
-    
+
     print(cost_line)
 
     print(f"  Models: {', '.join(sorted(summary['models']))}")

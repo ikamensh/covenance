@@ -527,6 +527,7 @@ def test_retry_tracking_with_multiple_failures():
         - tokens_output = 150 (all attempts: 50 + 60 + 40)
         - Single consolidated record (not 3 separate records)
     """
+
     def make_mock_response(parsed_value, prompt_tokens: int, completion_tokens: int):
         """Helper to create a mock Gemini API response."""
         response = MagicMock()
@@ -576,14 +577,160 @@ def test_retry_tracking_with_multiple_failures():
     record = records[0]
 
     # Verify retry tracking
-    assert record.structured_output_retries == 2, "Expected 2 SO retries (2 failures before success)"
+    assert record.structured_output_retries == 2, (
+        "Expected 2 SO retries (2 failures before success)"
+    )
     assert record.tpm_retries == 0, "No TPM retries in this test"
 
     # Verify total tokens (all attempts combined)
-    assert record.tokens_input == 300, "Total input: 100 + 100 + 100 from all 3 attempts"
+    assert record.tokens_input == 300, (
+        "Total input: 100 + 100 + 100 from all 3 attempts"
+    )
     assert record.tokens_output == 150, "Total output: 50 + 60 + 40 from all 3 attempts"
     assert record.tokens_total == 450, "Total: 300 in + 150 out"
 
     # Verify the summary also reflects the retry stats
     summary = covenance.usage_summary()
     assert summary["structured_output_retries"] == 2
+
+
+class TestAllClientsAggregation:
+    """Tests for aggregating records across multiple Covenance clients."""
+
+    @pytest.fixture(autouse=True)
+    def clean_client_registry(self):
+        """Clear client registry before and after each test to isolate test state."""
+        import covenance.client as client_module
+
+        # Store original registry contents
+        original_clients = client_module._all_clients.copy()
+        client_module._all_clients.clear()
+
+        # Re-add only the default client
+        client_module._all_clients.append(client_module._default_client)
+        client_module._default_client.clear_records()
+
+        yield
+
+        # Restore original state
+        client_module._all_clients.clear()
+        client_module._all_clients.extend(original_clients)
+
+    def _add_mock_record(
+        self, client: covenance.Covenance, model: str, provider: str, tokens: int = 100
+    ) -> None:
+        """Add a mock record to a client's record store."""
+        from datetime import UTC, datetime
+
+        from covenance.record import TokenUsage
+
+        usage = TokenUsage(
+            prompt_tokens=tokens,
+            completion_tokens=tokens // 2,
+            total_tokens=tokens + tokens // 2,
+        )
+        client._record_store.record_llm_call(
+            model=model,
+            provider=provider,
+            usage=usage,
+            started_at=datetime.now(UTC),
+            ended_at=datetime.now(UTC),
+        )
+
+    def test_get_all_clients_tracks_created_clients(self):
+        """Verifies all created Covenance instances are tracked in the registry."""
+        initial_count = len(covenance.get_all_clients())
+
+        client_a = covenance.Covenance(label="test-A")
+        client_b = covenance.Covenance(label="test-B")
+
+        all_clients = covenance.get_all_clients()
+        assert len(all_clients) == initial_count + 2
+
+        labels = [c.label for c in all_clients]
+        assert "test-A" in labels
+        assert "test-B" in labels
+
+    def test_get_all_records_aggregates_from_all_clients(self):
+        """Verifies get_all_records() returns records from all clients combined."""
+        client_a = covenance.Covenance(label="client-A")
+        client_b = covenance.Covenance(label="client-B")
+
+        self._add_mock_record(client_a, model="gpt-4o", provider="openai")
+        self._add_mock_record(client_b, model="claude-sonnet-4", provider="anthropic")
+
+        all_records = covenance.get_all_records()
+
+        # Should have 2 records (one from each client)
+        assert len(all_records) == 2
+
+        models = {r.model for r in all_records}
+        assert models == {"gpt-4o", "claude-sonnet-4"}
+
+    def test_get_all_records_sorted_by_start_time(self):
+        """Verifies get_all_records() returns records sorted by started_at timestamp."""
+        import time
+
+        client_a = covenance.Covenance(label="client-A")
+        client_b = covenance.Covenance(label="client-B")
+
+        # Add records with slight delay to ensure different timestamps
+        self._add_mock_record(client_a, model="model-first", provider="openai")
+        time.sleep(0.01)
+        self._add_mock_record(client_b, model="model-second", provider="openai")
+
+        all_records = covenance.get_all_records()
+
+        assert all_records[0].model == "model-first"
+        assert all_records[1].model == "model-second"
+
+    def test_print_usage_all_clients_aggregates_stats(self, capsys):
+        """Verifies print_usage(all_clients=True) shows combined stats from all clients."""
+        client_a = covenance.Covenance(label="client-A")
+        client_b = covenance.Covenance(label="client-B")
+
+        self._add_mock_record(client_a, model="gpt-4o", provider="openai", tokens=100)
+        self._add_mock_record(
+            client_b, model="claude-sonnet-4", provider="anthropic", tokens=200
+        )
+
+        covenance.print_usage(all_clients=True)
+
+        output = capsys.readouterr().out
+        assert "all clients" in output.lower()
+        assert "Calls: 2" in output
+        # Total tokens: (100 + 50) + (200 + 100) = 450
+        assert "450" in output
+
+    def test_print_call_timeline_all_clients(self, capsys):
+        """Verifies print_call_timeline(all_clients=True) shows calls from all clients."""
+        client_a = covenance.Covenance(label="client-A")
+        client_b = covenance.Covenance(label="client-B")
+
+        self._add_mock_record(client_a, model="gpt-4o", provider="openai")
+        self._add_mock_record(client_b, model="gemini-2.5-flash", provider="gemini")
+
+        covenance.print_call_timeline(all_clients=True)
+
+        output = capsys.readouterr().out
+        assert "2 calls" in output
+        assert "gpt-4o" in output
+        assert "g2.5-flash" in output  # Model name gets shortened
+
+    def test_usage_summary_with_all_records(self):
+        """Verifies usage_summary() works correctly with aggregated records."""
+        client_a = covenance.Covenance(label="client-A")
+        client_b = covenance.Covenance(label="client-B")
+
+        self._add_mock_record(client_a, model="gpt-4o", provider="openai", tokens=100)
+        self._add_mock_record(
+            client_b, model="claude-sonnet-4", provider="anthropic", tokens=200
+        )
+
+        all_records = covenance.get_all_records()
+        summary = covenance.usage_summary(records=all_records)
+
+        assert summary["calls"] == 2
+        assert summary["tokens_input"] == 300  # 100 + 200
+        assert summary["tokens_output"] == 150  # 50 + 100
+        assert len(summary["models"]) == 2

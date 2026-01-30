@@ -152,7 +152,9 @@ class TestUsageSummary:
     def test_tracks_openrouter_calls(self):
         """OpenRouter calls are tracked in has_openrouter flag."""
         records = [
-            _make_record(provider="openrouter", model="meta-llama/llama-3.1-8b", cost=None),
+            _make_record(
+                provider="openrouter", model="meta-llama/llama-3.1-8b", cost=None
+            ),
             _make_record(provider="openai", model="gpt-4o", cost=0.001),
         ]
         summary = usage_summary(records)
@@ -218,7 +220,9 @@ class TestPrintUsage:
     def test_openrouter_exclusion_message(self, capsys):
         """When OpenRouter calls exist, cost line mentions exclusion."""
         records = [
-            _make_record(provider="openrouter", model="meta-llama/llama-3.1-8b", cost=None),
+            _make_record(
+                provider="openrouter", model="meta-llama/llama-3.1-8b", cost=None
+            ),
             _make_record(provider="openai", model="gpt-4o", cost=0.05),
         ]
         print_usage(records)

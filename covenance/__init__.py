@@ -8,6 +8,8 @@ except ImportError:
 from .client import (
     Covenance,
     ask_llm,
+    get_all_clients,
+    get_all_records,
     llm_consensus,
 )
 from .record import (
@@ -30,6 +32,8 @@ __all__ = [
     # Call records
     "Record",
     "get_records",
+    "get_all_clients",
+    "get_all_records",
     "clear_records",
     "get_records_dir",
     "set_records_dir",

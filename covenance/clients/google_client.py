@@ -1,7 +1,6 @@
 import re
 import time
 import warnings
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, TypeVar
 
 from covenance._lazy_client import LazyClient

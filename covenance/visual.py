@@ -59,15 +59,25 @@ def _shorten_model_name(model: str, max_len: int = 13) -> str:
 def print_call_timeline(
     records: list[Record] | None = None,
     width: int = 80,
+    all_clients: bool = False,
 ) -> None:
     """Print a terminal-based waterfall chart of LLM call timings.
 
     Each line represents one call, sorted by start time (top to bottom).
     Block characters show when each call was active on a shared time axis,
     making parallel calls and sequence visible at a glance.
+
+    Args:
+        records: List of Record objects. If None, uses get_records() or all client records.
+        width: Width of the timeline bar in characters.
+        all_clients: If True and records is None, aggregate records from all Covenance clients.
     """
     if records is None:
-        records = get_records()
+        if all_clients:
+            from covenance.client import get_all_records
+            records = get_all_records()
+        else:
+            records = get_records()
 
     if not records:
         print("\nNo LLM calls to display.")

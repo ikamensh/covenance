@@ -8,7 +8,6 @@ Each retry attempt is recorded honestly as a separate LLM call.
 
 import json
 import time
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, TypeVar
 
 from covenance._lazy_client import LazyClient
@@ -259,7 +258,11 @@ def ask_mistral[T](
                 raise
 
             explicit_wait = _parse_wait_time_from_error(e)
-            wait_time = explicit_wait if explicit_wait is not None else exponential_backoff(attempt)
+            wait_time = (
+                explicit_wait
+                if explicit_wait is not None
+                else exponential_backoff(attempt)
+            )
 
             if VERBOSE:
                 print(

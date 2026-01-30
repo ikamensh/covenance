@@ -6,7 +6,6 @@ providing guaranteed schema-valid JSON. Falls back to tool-use for older SDKs.
 
 import re
 import time
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, TypeVar
 
 from covenance._lazy_client import LazyClient
@@ -50,6 +49,7 @@ VERBOSE = False
 def _is_rate_limit_error(error: Exception) -> bool:
     """Check if error indicates a rate limit (explicit type or string match)."""
     from anthropic import RateLimitError
+
     if isinstance(error, RateLimitError):
         return True
     error_str = str(error)
@@ -100,11 +100,13 @@ def ask_anthropic[T](
     tools = None
     if not is_plain_text and not use_beta:
         tool_name = getattr(response_type, "__name__", "structured_output")
-        tools = [{
-            "name": tool_name,
-            "description": f"Generate output matching the {tool_name} schema",
-            "input_schema": response_type.model_json_schema(),  # type: ignore[union-attr]
-        }]
+        tools = [
+            {
+                "name": tool_name,
+                "description": f"Generate output matching the {tool_name} schema",
+                "input_schema": response_type.model_json_schema(),  # type: ignore[union-attr]
+            }
+        ]
 
     messages = [{"role": "user", "content": user_msg}]
     total_tpm_wait = 0.0
@@ -120,10 +122,12 @@ def ask_anthropic[T](
                 kwargs["temperature"] = temperature
 
             if use_beta:
-                kwargs.update({
-                    "betas": ["structured-outputs-2025-11-13"],
-                    "output_format": response_type,
-                })
+                kwargs.update(
+                    {
+                        "betas": ["structured-outputs-2025-11-13"],
+                        "output_format": response_type,
+                    }
+                )
                 if sys_msg is not None:
                     kwargs["system"] = [{"type": "text", "text": sys_msg}]
                 response = api_client.beta.messages.parse(**kwargs)
@@ -159,7 +163,11 @@ def ask_anthropic[T](
             else:
                 # Tool-use fallback: find and parse tool_use block
                 tool_use_block = next(
-                    (b for b in response.content if b.type == "tool_use" and b.name == tool_name),
+                    (
+                        b
+                        for b in response.content
+                        if b.type == "tool_use" and b.name == tool_name
+                    ),
                     None,
                 )
                 if tool_use_block is None:
@@ -188,7 +196,9 @@ def ask_anthropic[T](
         except Exception as e:
             if not _is_rate_limit_error(e) or attempt == max_attempts - 1:
                 if VERBOSE:
-                    print(f"[Anthropic Retry] ✗ {type(e).__name__} after {attempt + 1} attempts")
+                    print(
+                        f"[Anthropic Retry] ✗ {type(e).__name__} after {attempt + 1} attempts"
+                    )
                 raise
 
             wait_time = _parse_wait_time_from_error(e) or exponential_backoff(attempt)

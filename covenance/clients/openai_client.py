@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 import time
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, TypeVar
 
 from covenance._lazy_client import LazyClient
@@ -104,7 +103,7 @@ def ask_openai_compatible_structured[T](
     model: str = "gpt-4o",
     provider: str = "openai",
     temperature: float | None = None,
-) -> "RawCallResult":
+) -> RawCallResult:
     """Execute structured call against an OpenAI-compatible API with retries.
 
     Always returns RawCallResult. Raises StructuredOutputParsingError (with usage)
@@ -183,7 +182,7 @@ def ask_openai[T](
     *,
     client_override: OpenAI | None = None,
     temperature: float | None = None,
-) -> "RawCallResult":
+) -> RawCallResult:
     """Call OpenAI API with automatic retry. Returns RawCallResult."""
     api_client = client_override or client  # type: ignore[assignment]
     return ask_openai_compatible_structured(
