@@ -19,17 +19,25 @@ RECORDS_DIR_ENV = "COVENANCE_RECORDS_DIR"
 
 
 class Record(BaseModel):
-    """Record of a single LLM API call."""
+    """Record of a single logical LLM call (may involve retries).
+
+    Token counts include all attempts (successful + failed).
+    Retry fields track TPM (rate limit) and structured output parsing retries separately.
+    """
 
     model: str
     provider: str
-    tokens_input: int
-    tokens_output: int
+    tokens_input: int  # Total input tokens (all attempts)
+    tokens_output: int  # Total output tokens (all attempts)
     tokens_cached: int = 0
     tokens_total: int
     cost_usd: float | None = None  # None if pricing unknown for this model
     duration_seconds: float
+    # TPM (rate limit) retry tracking
     tpm_retry_wait_seconds: float = 0.0
+    tpm_retries: int = 0
+    # Structured output retry tracking (count serves as proxy for wasted tokens)
+    structured_output_retries: int = 0
     started_at: str  # ISO 8601 timestamp
     ended_at: str  # ISO 8601 timestamp
     # Caller info (best-effort, for debugging)
@@ -82,6 +90,8 @@ class RecordStore:
         started_at: datetime,
         ended_at: datetime,
         tpm_retry_wait_seconds: float = 0.0,
+        tpm_retries: int = 0,
+        structured_output_retries: int = 0,
         caller_function: str | None = None,
         caller_file: str | None = None,
         caller_line: int | None = None,
@@ -107,6 +117,8 @@ class RecordStore:
             cost_usd=cost_usd,
             duration_seconds=duration_seconds,
             tpm_retry_wait_seconds=tpm_retry_wait_seconds,
+            tpm_retries=tpm_retries,
+            structured_output_retries=structured_output_retries,
             started_at=started_at.isoformat(),
             ended_at=ended_at.isoformat(),
             caller_function=caller_function,
@@ -190,6 +202,22 @@ class TokenUsage(BaseModel):
     cached_tokens: int = 0  # Tokens read from cache (provider-specific support)
 
 
+class RawCallResult(BaseModel):
+    """Internal result from a single LLM API call, used for deferred recording.
+
+    Providers return this when skip_recording=True, allowing the caller
+    to accumulate results across retries before creating a single Record.
+    """
+
+    output: object  # The LLM response (str, parsed model, etc.)
+    usage: TokenUsage
+    tpm_retries: int = 0
+    tpm_wait_seconds: float = 0.0
+    # JSON parse retries (Mistral). Since SDK doesn't provide usage on parse failure,
+    # caller can estimate wasted tokens as: usage * json_retries
+    json_retries: int = 0
+
+
 def record_llm_call(
     *,
     model: str,
@@ -198,6 +226,8 @@ def record_llm_call(
     started_at: datetime,
     ended_at: datetime,
     tpm_retry_wait_seconds: float = 0.0,
+    tpm_retries: int = 0,
+    structured_output_retries: int = 0,
     record_store: RecordStore | None = None,
 ) -> None:
     """Record an LLM call to the given store (or default) and log it."""
@@ -215,15 +245,20 @@ def record_llm_call(
         started_at=started_at,
         ended_at=ended_at,
         tpm_retry_wait_seconds=tpm_retry_wait_seconds,
+        tpm_retries=tpm_retries,
+        structured_output_retries=structured_output_retries,
         caller_function=caller_function,
         caller_file=caller_file,
         caller_line=caller_line,
     )
     cost_str = f"${record.cost_usd:.6f}" if record.cost_usd is not None else "n/a"
+    retry_info = ""
+    if tpm_retries or structured_output_retries:
+        retry_info = f" retries=(tpm={tpm_retries}, so={structured_output_retries})"
     logger.info(
         f"LLM call {provider}/{model} "
         f"tokens={usage.total_tokens} (in={usage.prompt_tokens}, out={usage.completion_tokens}, cached={usage.cached_tokens}) "
-        f"cost={cost_str} duration={duration:.2f}s"
+        f"cost={cost_str} duration={duration:.2f}s{retry_info}"
     )
 
 
@@ -235,7 +270,8 @@ def usage_summary(records: list[Record] | None = None) -> dict:
 
     Returns:
         Dict with keys: calls, tokens_input, tokens_output, tokens_cached, tokens_total,
-        cost_usd, models (set of "provider/model" strings), has_openrouter (bool).
+        cost_usd, models (set of "provider/model" strings), has_openrouter (bool),
+        tpm_retries, structured_output_retries.
     """
     if records is None:
         records = get_records()
@@ -244,6 +280,8 @@ def usage_summary(records: list[Record] | None = None) -> dict:
     total_input = 0
     total_output = 0
     total_cached = 0
+    total_tpm_retries = 0
+    total_so_retries = 0
     models_used: set[str] = set()
     has_openrouter = False
 
@@ -253,6 +291,8 @@ def usage_summary(records: list[Record] | None = None) -> dict:
         total_input += record.tokens_input
         total_output += record.tokens_output
         total_cached += record.tokens_cached
+        total_tpm_retries += record.tpm_retries
+        total_so_retries += record.structured_output_retries
         models_used.add(f"{record.provider}/{record.model}")
         if record.provider == "openrouter":
             has_openrouter = True
@@ -266,6 +306,8 @@ def usage_summary(records: list[Record] | None = None) -> dict:
         "cost_usd": total_cost,
         "models": models_used,
         "has_openrouter": has_openrouter,
+        "tpm_retries": total_tpm_retries,
+        "structured_output_retries": total_so_retries,
     }
 
 
@@ -273,6 +315,7 @@ def print_usage(
     records: list[Record] | None = None,
     title: str = "LLM Usage Summary",
     cost_format: str = "plain",
+    show_retries: bool = False,
 ) -> None:
     """Print a formatted usage summary to stdout.
 
@@ -283,6 +326,7 @@ def print_usage(
             - "plain": Always show dollars with 2 decimals (default)
             - "cent": Show cents with 3 decimals for costs < $0.01, dollars otherwise
             - "exponential": Show exponential notation for costs < $0.01, dollars otherwise
+        show_retries: If True, show retry statistics (TPM, structured output, wasted tokens).
     """
     summary = usage_summary(records)
 
@@ -326,6 +370,13 @@ def print_usage(
     print(cost_line)
 
     print(f"  Models: {', '.join(sorted(summary['models']))}")
+
+    # Show retry info if requested and there were any retries
+    if show_retries:
+        tpm_retries = summary.get("tpm_retries", 0)
+        so_retries = summary.get("structured_output_retries", 0)
+        if tpm_retries or so_retries:
+            print(f"  Retries: TPM={tpm_retries}, SO={so_retries}")
 
 
 def load_records_from_jsonl(path: str | Path) -> list[Record]:

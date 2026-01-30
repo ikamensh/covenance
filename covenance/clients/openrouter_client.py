@@ -44,6 +44,7 @@ def ask_openrouter[T](
     client_override: "OpenAI | None" = None,
     record_store: "RecordStore | None" = None,
     temperature: float | None = None,
+    skip_recording: bool = False,
 ) -> T:
     """Call OpenRouter API with automatic retry."""
     api_client = client_override or client  # type: ignore[assignment]
@@ -56,6 +57,7 @@ def ask_openrouter[T](
         provider="openrouter",
         record_store=record_store,
         temperature=temperature,
+        skip_recording=skip_recording,
     )
 
 

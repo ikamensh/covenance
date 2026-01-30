@@ -91,6 +91,7 @@ def ask_mistral[T](
     client_override: "Mistral | None" = None,
     record_store: "RecordStore | None" = None,
     temperature: float | None = None,
+    skip_recording: bool = False,
 ) -> T:
     """Call Mistral API with structured output using native parse method.
 
@@ -99,12 +100,19 @@ def ask_mistral[T](
 
     Note: Mistral uses probabilistic JSON generation (not constrained decoding),
     so structured output may occasionally fail with JSONDecodeError. We retry
-    up to JSON_PARSE_MAX_RETRIES times for such errors. Failed parse attempts
-    cannot be recorded (no token info available from SDK on parse failure).
+    up to JSON_PARSE_MAX_RETRIES times for such errors. Since the SDK doesn't
+    provide token usage on parse failure, wasted tokens are estimated by
+    multiplying successful attempt's tokens by the number of JSON retries.
 
     If response_type is str or None, performs a standard chat completion and returns the text.
+
+    Args:
+        skip_recording: If True, returns RawCallResult instead of recording.
+            Used internally by ask_llm to accumulate across SO retries.
     """
     from mistralai.models import HTTPValidationError, SDKError
+
+    from covenance.record import RawCallResult
 
     max_attempts = 100
     api_client = client_override or client  # type: ignore[assignment]
@@ -116,6 +124,7 @@ def ask_mistral[T](
     messages.append({"role": "user", "content": user_msg})
 
     total_tpm_wait = 0.0  # Accumulate TPM retry wait time
+    tpm_retries = 0
     started_at = datetime.now(UTC)  # Record absolute start time
     json_parse_attempts = 0  # Track JSON parse retries separately
 
@@ -147,18 +156,6 @@ def ask_mistral[T](
             ended_at = datetime.now(UTC)  # Record absolute end time
             usage = _extract_mistral_usage(response, model=model)
 
-            from covenance.record import record_llm_call
-
-            record_llm_call(
-                model=model,
-                provider="mistral",
-                usage=usage,
-                tpm_retry_wait_seconds=total_tpm_wait,
-                started_at=started_at,
-                ended_at=ended_at,
-                record_store=record_store,
-            )
-
             if VERBOSE and attempt > 0:
                 print(
                     f"[Mistral Retry] ✓ Successfully completed after {attempt + 1} attempt(s)"
@@ -167,21 +164,55 @@ def ask_mistral[T](
             if is_plain_text:
                 content = response.choices[0].message.content
                 if content is None:
+                    if skip_recording:
+                        return RawCallResult(  # type: ignore[return-value]
+                            output=None, usage=usage, tpm_retries=tpm_retries,
+                            tpm_wait_seconds=total_tpm_wait, json_retries=json_parse_attempts
+                        )
                     raise StructuredOutputParsingError(
                         f"Mistral API returned response but content field is None. "
                         f"Model: {model}, response_type: {response_type}"
                     )
-                return content  # type: ignore[return-value]
+                output = content
+            else:
+                # Access the parsed Pydantic object
+                parsed = response.choices[0].message.parsed
+                if parsed is None:
+                    if skip_recording:
+                        return RawCallResult(  # type: ignore[return-value]
+                            output=None, usage=usage, tpm_retries=tpm_retries,
+                            tpm_wait_seconds=total_tpm_wait, json_retries=json_parse_attempts
+                        )
+                    raise StructuredOutputParsingError(
+                        f"Mistral API returned response but parsed field is None. "
+                        f"This may indicate a schema mismatch or parsing error. "
+                        f"Model: {model}, response_type: {response_type}"
+                    )
+                output = parsed
 
-            # Access the parsed Pydantic object
-            parsed = response.choices[0].message.parsed
-            if parsed is None:
-                raise StructuredOutputParsingError(
-                    f"Mistral API returned response but parsed field is None. "
-                    f"This may indicate a schema mismatch or parsing error. "
-                    f"Model: {model}, response_type: {response_type}"
+            if skip_recording:
+                return RawCallResult(  # type: ignore[return-value]
+                    output=output,
+                    usage=usage,
+                    tpm_retries=tpm_retries,
+                    tpm_wait_seconds=total_tpm_wait,
+                    json_retries=json_parse_attempts,
                 )
-            return parsed
+
+            from covenance.record import record_llm_call
+
+            record_llm_call(
+                model=model,
+                provider="mistral",
+                usage=usage,
+                tpm_retry_wait_seconds=total_tpm_wait,
+                tpm_retries=tpm_retries,
+                started_at=started_at,
+                ended_at=ended_at,
+                record_store=record_store,
+            )
+
+            return output  # type: ignore[return-value]
 
         except json.JSONDecodeError as e:
             # Mistral's probabilistic JSON output occasionally produces invalid JSON
@@ -256,6 +287,7 @@ def ask_mistral[T](
 
             time.sleep(wait_time)
             total_tpm_wait += wait_time
+            tpm_retries += 1
 
         except Exception as e:
             # Handle other potential errors (network, API changes, etc.)
@@ -285,6 +317,7 @@ def ask_mistral[T](
 
             time.sleep(wait_time)
             total_tpm_wait += wait_time
+            tpm_retries += 1
 
 
 def _extract_mistral_usage(response, model: str) -> TokenUsage:

@@ -12,6 +12,7 @@ from pydantic import BaseModel
 # Import the covenance module - tests use covenance.ask_llm directly
 import covenance
 from covenance.exceptions import StructuredOutputParsingError
+from covenance.record import RawCallResult, TokenUsage
 
 
 class SimpleResponse(BaseModel):
@@ -19,6 +20,11 @@ class SimpleResponse(BaseModel):
 
     answer: str
     confidence: float
+
+
+def _mock_usage() -> TokenUsage:
+    """Create a mock TokenUsage for testing."""
+    return TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15)
 
 
 @pytest.fixture(autouse=True)
@@ -216,12 +222,15 @@ def test_ask_llm_structured_with_consensus_makes_multiple_calls():
             and "worker llms" in user_msg.lower()
         ):
             call_count["integration"] += 1
-            return integration_response
+            result = integration_response
         else:
             call_count["candidate"] += 1
             result = candidate_responses[candidate_index % len(candidate_responses)]
             candidate_index += 1
-            return result
+        # Handle skip_recording
+        if kwargs.get("skip_recording", False):
+            return RawCallResult(output=result, usage=_mock_usage())
+        return result
 
     with patch("covenance.clients.google_client.ask_gemini") as mock_ask:
         mock_ask.side_effect = mock_ask_gemini
@@ -266,9 +275,13 @@ def test_ask_llm_structured_with_consensus_integration_prompt():
                     ),
                 }
             )
-            return integration_response
+            result = integration_response
         else:
-            return candidate_response
+            result = candidate_response
+        # Handle skip_recording
+        if kwargs.get("skip_recording", False):
+            return RawCallResult(output=result, usage=_mock_usage())
+        return result
 
     with patch("covenance.clients.google_client.ask_gemini") as mock_ask:
         mock_ask.side_effect = mock_ask_gemini
@@ -315,7 +328,7 @@ def test_ask_llm_structured_with_consensus_cycles_models():
             "candidate answers" in user_msg.lower()
             and "worker llms" in user_msg.lower()
         ):
-            return integration_response
+            result = integration_response
         else:
             # Capture worker call model
             worker_calls.append(
@@ -323,7 +336,11 @@ def test_ask_llm_structured_with_consensus_cycles_models():
                     "model": kwargs.get("model", args[3] if len(args) > 3 else None),
                 }
             )
-            return candidate_response
+            result = candidate_response
+        # Handle skip_recording
+        if kwargs.get("skip_recording", False):
+            return RawCallResult(output=result, usage=_mock_usage())
+        return result
 
     # Models without special prefixes route to OpenAI
     with patch("covenance.clients.openai_client.ask_openai") as mock_ask:
@@ -363,7 +380,7 @@ def test_ask_llm_structured_with_consensus_uses_base_model_when_no_additional():
             "candidate answers" in user_msg.lower()
             and "worker llms" in user_msg.lower()
         ):
-            return integration_response
+            result = integration_response
         else:
             # Capture worker call model
             worker_calls.append(
@@ -371,7 +388,11 @@ def test_ask_llm_structured_with_consensus_uses_base_model_when_no_additional():
                     "model": kwargs.get("model", args[3] if len(args) > 3 else None),
                 }
             )
-            return candidate_response
+            result = candidate_response
+        # Handle skip_recording
+        if kwargs.get("skip_recording", False):
+            return RawCallResult(output=result, usage=_mock_usage())
+        return result
 
     with patch("covenance.clients.google_client.ask_gemini") as mock_ask:
         mock_ask.side_effect = mock_ask_gemini
@@ -406,7 +427,7 @@ def test_ask_llm_structured_with_consensus_empty_additional_models_uses_base():
             "candidate answers" in user_msg.lower()
             and "worker llms" in user_msg.lower()
         ):
-            return integration_response
+            result = integration_response
         else:
             # Capture worker call model
             worker_calls.append(
@@ -414,7 +435,11 @@ def test_ask_llm_structured_with_consensus_empty_additional_models_uses_base():
                     "model": kwargs.get("model", args[3] if len(args) > 3 else None),
                 }
             )
-            return candidate_response
+            result = candidate_response
+        # Handle skip_recording
+        if kwargs.get("skip_recording", False):
+            return RawCallResult(output=result, usage=_mock_usage())
+        return result
 
     with patch("covenance.clients.google_client.ask_gemini") as mock_ask:
         mock_ask.side_effect = mock_ask_gemini
@@ -442,6 +467,7 @@ def test_retry_on_parsing_error():
     mock_response_success.usage_metadata.prompt_token_count = 10
     mock_response_success.usage_metadata.candidates_token_count = 5
     mock_response_success.usage_metadata.total_token_count = 15
+    mock_response_success.usage_metadata.cached_content_token_count = 0
 
     mock_response_failure = MagicMock()
     mock_response_failure.parsed = None  # Simulate parsing error
@@ -449,6 +475,7 @@ def test_retry_on_parsing_error():
     mock_response_failure.usage_metadata.prompt_token_count = 10
     mock_response_failure.usage_metadata.candidates_token_count = 5
     mock_response_failure.usage_metadata.total_token_count = 15
+    mock_response_failure.usage_metadata.cached_content_token_count = 0
 
     with patch(
         "covenance.clients.google_client.client.models.generate_content"
@@ -476,6 +503,7 @@ def test_retry_exhausted_raises_exception():
     mock_response_failure.usage_metadata.prompt_token_count = 10
     mock_response_failure.usage_metadata.candidates_token_count = 5
     mock_response_failure.usage_metadata.total_token_count = 15
+    mock_response_failure.usage_metadata.cached_content_token_count = 0
 
     with patch(
         "covenance.clients.google_client.client.models.generate_content"
@@ -493,3 +521,79 @@ def test_retry_exhausted_raises_exception():
 
     # Should have tried 3 times (1 initial + 2 retries)
     assert mock_gemini.call_count == 3
+
+
+def test_retry_tracking_with_multiple_failures():
+    """Comprehensive test: verifies retry tracking when LLM returns invalid JSON twice then succeeds.
+
+    Scenario:
+        - Attempt 1: LLM returns None (parsed=None), tokens: 100 in, 50 out
+        - Attempt 2: LLM returns None (parsed=None), tokens: 100 in, 60 out
+        - Attempt 3: LLM returns valid response, tokens: 100 in, 40 out → success
+
+    Expected record:
+        - structured_output_retries = 2 (two failed attempts before success)
+        - tokens_input = 300 (all attempts: 100 + 100 + 100)
+        - tokens_output = 150 (all attempts: 50 + 60 + 40)
+        - Single consolidated record (not 3 separate records)
+    """
+    def make_mock_response(parsed_value, prompt_tokens: int, completion_tokens: int):
+        """Helper to create a mock Gemini API response."""
+        response = MagicMock()
+        response.parsed = parsed_value
+        response.usage_metadata = MagicMock()
+        response.usage_metadata.prompt_token_count = prompt_tokens
+        response.usage_metadata.candidates_token_count = completion_tokens
+        response.usage_metadata.total_token_count = prompt_tokens + completion_tokens
+        response.usage_metadata.cached_content_token_count = 0
+        return response
+
+    # First two calls fail (parsed=None), third succeeds
+    mock_responses = [
+        make_mock_response(None, prompt_tokens=100, completion_tokens=50),
+        make_mock_response(None, prompt_tokens=100, completion_tokens=60),
+        make_mock_response(
+            SimpleResponse(answer="Paris", confidence=0.95),
+            prompt_tokens=100,
+            completion_tokens=40,
+        ),
+    ]
+
+    covenance.clear_records()
+
+    with patch(
+        "covenance.clients.google_client.client.models.generate_content"
+    ) as mock_gemini:
+        mock_gemini.side_effect = mock_responses
+
+        result = covenance.ask_llm(
+            user_msg="What is the capital of France?",
+            response_type=SimpleResponse,
+            model="gemini-2.5-flash",
+            max_parsing_retries=2,  # Allow 2 retries (3 total attempts)
+        )
+
+    # Verify successful result
+    assert isinstance(result, SimpleResponse)
+    assert result.answer == "Paris"
+    assert result.confidence == 0.95
+    assert mock_gemini.call_count == 3
+
+    # Verify single consolidated record (not 3 separate records)
+    records = covenance.get_records()
+    assert len(records) == 1, "Expected single consolidated record, not one per attempt"
+
+    record = records[0]
+
+    # Verify retry tracking
+    assert record.structured_output_retries == 2, "Expected 2 SO retries (2 failures before success)"
+    assert record.tpm_retries == 0, "No TPM retries in this test"
+
+    # Verify total tokens (all attempts combined)
+    assert record.tokens_input == 300, "Total input: 100 + 100 + 100 from all 3 attempts"
+    assert record.tokens_output == 150, "Total output: 50 + 60 + 40 from all 3 attempts"
+    assert record.tokens_total == 450, "Total: 300 in + 150 out"
+
+    # Verify the summary also reflects the retry stats
+    summary = covenance.usage_summary()
+    assert summary["structured_output_retries"] == 2

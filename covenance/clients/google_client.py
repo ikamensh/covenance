@@ -104,6 +104,7 @@ def ask_gemini[T](
     client_override: "genai.Client | None" = None,
     record_store: "RecordStore | None" = None,
     temperature: float | None = None,
+    skip_recording: bool = False,
 ) -> T:
     """Call Gemini API with automatic retry on rate limit errors.
 
@@ -111,12 +112,19 @@ def ask_gemini[T](
     parsing the wait time from the error message and waiting accordingly.
 
     If response_type is str or None, performs a standard chat completion and returns the text.
+
+    Args:
+        skip_recording: If True, returns RawCallResult instead of recording.
+            Used internally by ask_llm to accumulate across SO retries.
     """
     from google.genai.errors import ClientError
+
+    from covenance.record import RawCallResult
 
     max_attempts = 100
     api_client = client_override or client  # type: ignore[assignment]
     total_tpm_wait = 0.0  # Accumulate TPM retry wait time
+    tpm_retries = 0
     started_at = datetime.now(UTC)  # Record absolute start time
 
     is_plain_text = response_type is str or response_type is None
@@ -149,18 +157,6 @@ def ask_gemini[T](
             ended_at = datetime.now(UTC)  # Record absolute end time
             usage = _extract_gemini_usage(response, model=model)
 
-            from covenance.record import record_llm_call
-
-            record_llm_call(
-                model=model,
-                provider="gemini",
-                usage=usage,
-                tpm_retry_wait_seconds=total_tpm_wait,
-                started_at=started_at,
-                ended_at=ended_at,
-                record_store=record_store,
-            )
-
             if VERBOSE and attempt > 0:
                 print(
                     f"[Gemini Retry] Successfully completed after {attempt + 1} attempt(s)"
@@ -168,20 +164,59 @@ def ask_gemini[T](
 
             if is_plain_text:
                 if response.text is None:
+                    if skip_recording:
+                        # Return RawCallResult with None output so caller can track usage
+                        return RawCallResult(  # type: ignore[return-value]
+                            output=None,
+                            usage=usage,
+                            tpm_retries=tpm_retries,
+                            tpm_wait_seconds=total_tpm_wait,
+                        )
                     raise StructuredOutputParsingError(
                         f"Gemini API returned response but text field is None. "
                         f"Model: {model}, response_type: {response_type}"
                     )
-                return response.text  # type: ignore[return-value]
-
-            if response.parsed is None:
+                output = response.text
+            elif response.parsed is None:
+                if skip_recording:
+                    # Return RawCallResult with None output so caller can track usage
+                    return RawCallResult(  # type: ignore[return-value]
+                        output=None,
+                        usage=usage,
+                        tpm_retries=tpm_retries,
+                        tpm_wait_seconds=total_tpm_wait,
+                    )
                 raise StructuredOutputParsingError(
                     f"Gemini API returned response but parsed field is None. "
                     f"This may indicate a schema mismatch or parsing error. "
                     f"Model: {model}, response_type: {response_type}"
                 )
+            else:
+                output = response.parsed
 
-            return response.parsed
+            if skip_recording:
+                return RawCallResult(  # type: ignore[return-value]
+                    output=output,
+                    usage=usage,
+                    tpm_retries=tpm_retries,
+                    tpm_wait_seconds=total_tpm_wait,
+                )
+
+            from covenance.record import record_llm_call
+
+            record_llm_call(
+                model=model,
+                provider="gemini",
+                usage=usage,
+                tpm_retry_wait_seconds=total_tpm_wait,
+                tpm_retries=tpm_retries,
+                started_at=started_at,
+                ended_at=ended_at,
+                record_store=record_store,
+            )
+
+            return output  # type: ignore[return-value]
+
         except ClientError as e:
             # Check if it's a 429 RESOURCE_EXHAUSTED error
             # ClientError can store error info in different ways
@@ -231,6 +266,7 @@ def ask_gemini[T](
 
             time.sleep(wait_time)
             total_tpm_wait += wait_time
+            tpm_retries += 1
             # Continue to next attempt
 
 

@@ -79,6 +79,7 @@ def ask_anthropic[T](
     client_override: "Anthropic | None" = None,
     record_store: "RecordStore | None" = None,
     temperature: float | None = None,
+    skip_recording: bool = False,
 ) -> T:
     """Call Anthropic API with structured output.
 
@@ -87,7 +88,13 @@ def ask_anthropic[T](
     not available. Retries on rate limit errors.
 
     If response_type is str or None, returns plain text.
+
+    Args:
+        skip_recording: If True, returns RawCallResult instead of recording.
+            Used internally by ask_llm to accumulate across SO retries.
     """
+    from covenance.record import RawCallResult
+
     max_attempts = 100
     api_client = client_override or client  # type: ignore[assignment]
     is_plain_text = response_type is str or response_type is None
@@ -106,6 +113,7 @@ def ask_anthropic[T](
 
     messages = [{"role": "user", "content": user_msg}]
     total_tpm_wait = 0.0
+    tpm_retries = 0
     started_at = datetime.now(UTC)
 
     for attempt in range(max_attempts):
@@ -136,52 +144,77 @@ def ask_anthropic[T](
             ended_at = datetime.now(UTC)
             usage = _extract_anthropic_usage(response, model=model)
 
+            if VERBOSE and attempt > 0:
+                print(f"[Anthropic Retry] ✓ Completed after {attempt + 1} attempt(s)")
+
+            # Extract result based on response type
+            output = None
+            if use_beta:
+                if response.parsed_output is None:
+                    if skip_recording:
+                        return RawCallResult(  # type: ignore[return-value]
+                            output=None, usage=usage, tpm_retries=tpm_retries, tpm_wait_seconds=total_tpm_wait
+                        )
+                    raise StructuredOutputParsingError(
+                        f"Anthropic returned None parsed_output. Model: {model}"
+                    )
+                output = response.parsed_output
+            elif not response.content:
+                if skip_recording:
+                    return RawCallResult(  # type: ignore[return-value]
+                        output=None, usage=usage, tpm_retries=tpm_retries, tpm_wait_seconds=total_tpm_wait
+                    )
+                raise StructuredOutputParsingError(
+                    f"Anthropic returned empty content. Model: {model}"
+                )
+            elif is_plain_text:
+                output = response.content[0].text
+            else:
+                # Tool-use fallback: find and parse tool_use block
+                tool_use_block = next(
+                    (b for b in response.content if b.type == "tool_use" and b.name == tool_name),
+                    None,
+                )
+                if tool_use_block is None:
+                    if skip_recording:
+                        return RawCallResult(  # type: ignore[return-value]
+                            output=None, usage=usage, tpm_retries=tpm_retries, tpm_wait_seconds=total_tpm_wait
+                        )
+                    raise StructuredOutputParsingError(
+                        f"No tool_use block returned. Model: {model}, Content: {response.content}"
+                    )
+                try:
+                    output = response_type(**tool_use_block.input)
+                except Exception as e:
+                    if skip_recording:
+                        return RawCallResult(  # type: ignore[return-value]
+                            output=None, usage=usage, tpm_retries=tpm_retries, tpm_wait_seconds=total_tpm_wait
+                        )
+                    raise StructuredOutputParsingError(
+                        f"Failed to parse as {response_type}: {e}. Input: {tool_use_block.input}"
+                    ) from e
+
+            if skip_recording:
+                return RawCallResult(  # type: ignore[return-value]
+                    output=output,
+                    usage=usage,
+                    tpm_retries=tpm_retries,
+                    tpm_wait_seconds=total_tpm_wait,
+                )
+
             from covenance.record import record_llm_call
             record_llm_call(
                 model=model,
                 provider="anthropic",
                 usage=usage,
                 tpm_retry_wait_seconds=total_tpm_wait,
+                tpm_retries=tpm_retries,
                 started_at=started_at,
                 ended_at=ended_at,
                 record_store=record_store,
             )
 
-            if VERBOSE and attempt > 0:
-                print(f"[Anthropic Retry] ✓ Completed after {attempt + 1} attempt(s)")
-
-            # Extract result based on response type
-            if use_beta:
-                if response.parsed_output is None:
-                    raise StructuredOutputParsingError(
-                        f"Anthropic returned None parsed_output. Model: {model}"
-                    )
-                return response.parsed_output
-
-            if not response.content:
-                raise StructuredOutputParsingError(
-                    f"Anthropic returned empty content. Model: {model}"
-                )
-
-            if is_plain_text:
-                return response.content[0].text  # type: ignore[return-value]
-
-            # Tool-use fallback: find and parse tool_use block
-            tool_use_block = next(
-                (b for b in response.content if b.type == "tool_use" and b.name == tool_name),
-                None,
-            )
-            if tool_use_block is None:
-                raise StructuredOutputParsingError(
-                    f"No tool_use block returned. Model: {model}, Content: {response.content}"
-                )
-
-            try:
-                return response_type(**tool_use_block.input)  # type: ignore[return-value]
-            except Exception as e:
-                raise StructuredOutputParsingError(
-                    f"Failed to parse as {response_type}: {e}. Input: {tool_use_block.input}"
-                ) from e
+            return output  # type: ignore[return-value]
 
         except Exception as e:
             if not _is_rate_limit_error(e) or attempt == max_attempts - 1:
@@ -195,6 +228,7 @@ def ask_anthropic[T](
 
             time.sleep(wait_time)
             total_tpm_wait += wait_time
+            tpm_retries += 1
 
     raise RuntimeError("ask_anthropic exhausted retry loop")
 

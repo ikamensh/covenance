@@ -105,12 +105,21 @@ def ask_openai_compatible_structured[T](
     provider: str = "openai",
     record_store: RecordStore | None = None,
     temperature: float | None = None,
+    skip_recording: bool = False,
 ) -> T:
-    """Execute structured call against an OpenAI-compatible API with retries."""
+    """Execute structured call against an OpenAI-compatible API with retries.
+
+    Args:
+        skip_recording: If True, returns RawCallResult instead of recording.
+            Used internally by ask_llm to accumulate across SO retries.
+    """
     from openai import RateLimitError
+
+    from covenance.record import RawCallResult
 
     max_attempts = 100
     total_tpm_wait = 0.0
+    tpm_retries = 0
     started_at = datetime.now(UTC)
     is_plain_text = response_type is str or response_type is None
     for attempt in range(max_attempts):
@@ -143,6 +152,27 @@ def ask_openai_compatible_structured[T](
                 response, model=model, provider=provider
             )
 
+            if output is None:
+                if skip_recording:
+                    # Return RawCallResult with None output so caller can track usage
+                    return RawCallResult(  # type: ignore[return-value]
+                        output=None,
+                        usage=usage,
+                        tpm_retries=tpm_retries,
+                        tpm_wait_seconds=total_tpm_wait,
+                    )
+                raise StructuredOutputParsingError(
+                    f"Empty output from {provider}/{model}"
+                )
+
+            if skip_recording:
+                return RawCallResult(  # type: ignore[return-value]
+                    output=output,
+                    usage=usage,
+                    tpm_retries=tpm_retries,
+                    tpm_wait_seconds=total_tpm_wait,
+                )
+
             from covenance.record import record_llm_call
 
             record_llm_call(
@@ -150,15 +180,11 @@ def ask_openai_compatible_structured[T](
                 provider=provider,
                 usage=usage,
                 tpm_retry_wait_seconds=total_tpm_wait,
+                tpm_retries=tpm_retries,
                 started_at=started_at,
                 ended_at=ended_at,
                 record_store=record_store,
             )
-
-            if output is None:
-                raise StructuredOutputParsingError(
-                    f"Empty output from {provider}/{model}"
-                )
 
             return output  # type: ignore[return-value]
 
@@ -172,6 +198,7 @@ def ask_openai_compatible_structured[T](
                 )
             time.sleep(wait_time)
             total_tpm_wait += wait_time
+            tpm_retries += 1
 
 
 def ask_openai[T](
@@ -183,6 +210,7 @@ def ask_openai[T](
     client_override: OpenAI | None = None,
     record_store: RecordStore | None = None,
     temperature: float | None = None,
+    skip_recording: bool = False,
 ) -> T:
     """Call OpenAI API with automatic retry."""
     api_client = client_override or client  # type: ignore[assignment]
@@ -195,6 +223,7 @@ def ask_openai[T](
         provider="openai",
         record_store=record_store,
         temperature=temperature,
+        skip_recording=skip_recording,
     )
 
 

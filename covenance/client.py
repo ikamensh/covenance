@@ -207,6 +207,11 @@ class Covenance:
                 Note: temperature=0 aims for determinism but doesn't guarantee it
                 due to GPU floating-point non-determinism and backend variability.
         """
+        from datetime import UTC, datetime
+
+        from ._caller_context import get_caller_info
+        from .record import RawCallResult, TokenUsage, record_llm_call
+
         provider = self._get_provider(model)
         client = self._get_client(provider)
         max_attempts = max_parsing_retries + 1
@@ -232,9 +237,18 @@ class Covenance:
         adapter = ResponseTypeAdapter(response_type)
         llm_type = adapter.get_llm_type()
 
+        # Accumulate data across retries
+        started_at = datetime.now(UTC)
+        total_tpm_retries = 0
+        total_tpm_wait = 0.0
+        structured_output_retries = 0
+        accumulated_input = 0
+        accumulated_output = 0
+
         for attempt in range(max_attempts):
+            raw_result: RawCallResult | None = None
             try:
-                result = llm_fn(
+                raw_result = llm_fn(
                     user_msg=user_msg,
                     response_type=llm_type,
                     sys_msg=sys_msg,
@@ -242,7 +256,21 @@ class Covenance:
                     client_override=client,
                     record_store=self._record_store,
                     temperature=temperature,
+                    skip_recording=True,
                 )
+
+                # Accumulate TPM retry info from this attempt
+                total_tpm_retries += raw_result.tpm_retries
+                total_tpm_wait += raw_result.tpm_wait_seconds
+
+                result = raw_result.output
+
+                # Check for parsing failure (provider returns None output when skip_recording)
+                if result is None and llm_type not in (None, str):
+                    raise StructuredOutputParsingError(
+                        f"LLM returned None output for structured type {llm_type}"
+                    )
+
                 if llm_type not in (None, str):
                     try:
                         result = TypeAdapter(llm_type).validate_python(result)
@@ -251,8 +279,55 @@ class Covenance:
                             "Structured LLM output did not match expected schema."
                         ) from exc
 
+                # Success! Now record consolidated result
+                ended_at = datetime.now(UTC)
+                final_usage = raw_result.usage
+
+                # Estimate tokens from JSON parse retries (Mistral).
+                # Since SDK doesn't provide usage on parse failure, we estimate
+                # using the successful attempt's tokens.
+                json_retries = raw_result.json_retries
+
+                total_input = final_usage.prompt_tokens + accumulated_input
+                total_output = final_usage.completion_tokens + accumulated_output
+                # Add estimated tokens from JSON retries
+                total_input += final_usage.prompt_tokens * json_retries
+                total_output += final_usage.completion_tokens * json_retries
+
+                consolidated_usage = TokenUsage(
+                    prompt_tokens=total_input,
+                    completion_tokens=total_output,
+                    total_tokens=total_input + total_output,
+                    cached_tokens=final_usage.cached_tokens,
+                )
+
+                caller_function, caller_file, caller_line = get_caller_info()
+                self._record_store.record_llm_call(
+                    model=model,
+                    provider=provider,
+                    usage=consolidated_usage,
+                    started_at=started_at,
+                    ended_at=ended_at,
+                    tpm_retry_wait_seconds=total_tpm_wait,
+                    tpm_retries=total_tpm_retries,
+                    structured_output_retries=structured_output_retries + json_retries,
+                    caller_function=caller_function,
+                    caller_file=caller_file,
+                    caller_line=caller_line,
+                )
+
                 return adapter.unwrap(result)
+
             except StructuredOutputParsingError:
+                # Accumulate tokens from this failed attempt (if we got usage info)
+                if raw_result is not None:
+                    accumulated_input += raw_result.usage.prompt_tokens
+                    accumulated_output += raw_result.usage.completion_tokens
+                    total_tpm_retries += raw_result.tpm_retries
+                    total_tpm_wait += raw_result.tpm_wait_seconds
+
+                structured_output_retries += 1
+
                 if attempt == max_attempts - 1:
                     raise
 
