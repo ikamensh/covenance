@@ -75,6 +75,7 @@ def print_call_timeline(
     if records is None:
         if all_clients:
             from covenance.client import get_all_records
+
             records = get_all_records()
         else:
             records = get_records()

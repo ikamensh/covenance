@@ -332,10 +332,11 @@ def print_usage(
     """
     if records is None and all_clients:
         from .client import get_all_records
+
         records = get_all_records()
         if title == "LLM Usage Summary":
             title = "LLM Usage Summary (all clients)"
-    
+
     summary = usage_summary(records)
 
     if summary["calls"] == 0:
