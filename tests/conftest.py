@@ -140,6 +140,26 @@ def real_ask_llm_structured_with_consensus(real_llm_consensus):
 
 
 @pytest.fixture
+def clean_client_registry():
+    """Clear client registry before and after each test to isolate test state."""
+    import covenance.client as client_module
+
+    # Store original registry contents
+    original_clients = client_module._all_clients.copy()
+    client_module._all_clients.clear()
+
+    # Re-add only the default client
+    client_module._all_clients.append(client_module._default_client)
+    client_module._default_client.clear_records()
+
+    yield
+
+    # Restore original state
+    client_module._all_clients.clear()
+    client_module._all_clients.extend(original_clients)
+
+
+@pytest.fixture
 def unblock_llm():
     """Unblock LLM calls for online tests by stopping patches and restoring functions."""
     # Stop all patches first - this should restore the original functions

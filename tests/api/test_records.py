@@ -1,4 +1,11 @@
-"""Tests for always-on LLM call logging."""
+"""Tests for LLM call recording public API.
+
+Tests the public interface of:
+- Record model
+- RecordStore class
+- Module-level record functions (record_llm_call, get_records, etc.)
+- Usage summary and printing functions
+"""
 
 from datetime import UTC, datetime, timedelta
 
@@ -23,61 +30,6 @@ def _make_timestamps(duration_seconds: float) -> tuple[datetime, datetime]:
     ended_at = datetime.now(UTC)
     started_at = ended_at - timedelta(seconds=duration_seconds)
     return started_at, ended_at
-
-
-def test_record_llm_call_is_always_logged():
-    clear_records()
-    started_at, ended_at = _make_timestamps(1.2)
-
-    record_llm_call(
-        model="gpt-4o",
-        provider="openai",
-        usage=TokenUsage(
-            prompt_tokens=10,
-            completion_tokens=5,
-            total_tokens=15,
-            cached_tokens=0,
-        ),
-        started_at=started_at,
-        ended_at=ended_at,
-    )
-
-    records = get_records()
-    assert len(records) == 1
-    assert records[0].model == "gpt-4o"
-    assert records[0].duration_seconds == 1.2
-
-
-def test_record_llm_call_persists_to_dir(tmp_path):
-    clear_records()
-    set_records_dir(tmp_path)
-
-    try:
-        started_at, ended_at = _make_timestamps(2.0)
-        record_llm_call(
-            model="claude-haiku-4-5",
-            provider="anthropic",
-            usage=TokenUsage(
-                prompt_tokens=5,
-                completion_tokens=7,
-                total_tokens=12,
-                cached_tokens=0,
-            ),
-            started_at=started_at,
-            ended_at=ended_at,
-        )
-
-        records_path = get_llm_call_records_path()
-        assert records_path is not None
-        assert records_path.exists()
-
-        lines = records_path.read_text(encoding="utf-8").splitlines()
-        assert len(lines) == 1
-        parsed = Record.model_validate_json(lines[0])
-        assert parsed.model == "claude-haiku-4-5"
-        assert parsed.provider == "anthropic"
-    finally:
-        set_records_dir(None)
 
 
 def _make_record(
@@ -106,8 +58,67 @@ def _make_record(
     )
 
 
+class TestRecordLLMCall:
+    """Tests for the record_llm_call function."""
+
+    def test_record_llm_call_is_always_logged(self):
+        """record_llm_call adds entries to the global record store."""
+        clear_records()
+        started_at, ended_at = _make_timestamps(1.2)
+
+        record_llm_call(
+            model="gpt-4o",
+            provider="openai",
+            usage=TokenUsage(
+                prompt_tokens=10,
+                completion_tokens=5,
+                total_tokens=15,
+                cached_tokens=0,
+            ),
+            started_at=started_at,
+            ended_at=ended_at,
+        )
+
+        records = get_records()
+        assert len(records) == 1
+        assert records[0].model == "gpt-4o"
+        assert records[0].duration_seconds == 1.2
+
+    def test_record_llm_call_persists_to_dir(self, tmp_path):
+        """Records are persisted to JSONL file when records_dir is set."""
+        clear_records()
+        set_records_dir(tmp_path)
+
+        try:
+            started_at, ended_at = _make_timestamps(2.0)
+            record_llm_call(
+                model="claude-haiku-4-5",
+                provider="anthropic",
+                usage=TokenUsage(
+                    prompt_tokens=5,
+                    completion_tokens=7,
+                    total_tokens=12,
+                    cached_tokens=0,
+                ),
+                started_at=started_at,
+                ended_at=ended_at,
+            )
+
+            records_path = get_llm_call_records_path()
+            assert records_path is not None
+            assert records_path.exists()
+
+            lines = records_path.read_text(encoding="utf-8").splitlines()
+            assert len(lines) == 1
+            parsed = Record.model_validate_json(lines[0])
+            assert parsed.model == "claude-haiku-4-5"
+            assert parsed.provider == "anthropic"
+        finally:
+            set_records_dir(None)
+
+
 class TestUsageSummary:
-    """Test usage_summary aggregation logic."""
+    """Tests for usage_summary aggregation."""
 
     def test_empty_records_returns_zeros(self):
         """Empty record list produces zero totals."""
@@ -176,7 +187,7 @@ class TestUsageSummary:
 
 
 class TestPrintUsage:
-    """Test print_usage output formatting."""
+    """Tests for print_usage output formatting."""
 
     def test_no_calls_prints_message(self, capsys):
         """Empty records print a simple message."""
@@ -238,7 +249,7 @@ class TestPrintUsage:
 
 
 class TestLoadRecordsFromJsonl:
-    """Test JSONL loading and validation."""
+    """Tests for JSONL loading and validation."""
 
     def test_loads_valid_jsonl(self, tmp_path):
         """Valid JSONL file is parsed correctly."""
@@ -302,7 +313,7 @@ class TestLoadRecordsFromJsonl:
 
 
 class TestRecordStore:
-    """Test RecordStore class directly."""
+    """Tests for RecordStore class."""
 
     def test_set_records_dir_to_none_disables_persistence(self):
         """Setting records_dir to None disables file persistence."""
