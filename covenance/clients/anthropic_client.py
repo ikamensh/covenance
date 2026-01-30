@@ -19,7 +19,7 @@ from covenance.retry import exponential_backoff
 if TYPE_CHECKING:
     from anthropic import Anthropic
 
-    from covenance.record import RecordStore
+    from covenance.record import RawCallResult
 
 T = TypeVar("T")
 
@@ -77,21 +77,16 @@ def ask_anthropic[T](
     model: str = ClaudeModels.haiku45,
     *,
     client_override: "Anthropic | None" = None,
-    record_store: "RecordStore | None" = None,
     temperature: float | None = None,
-    skip_recording: bool = False,
-) -> T:
-    """Call Anthropic API with structured output.
+) -> "RawCallResult":
+    """Call Anthropic API with structured output. Returns RawCallResult.
 
     Uses the structured outputs beta (constrained decoding, guaranteed valid JSON)
     when SDK >= 0.74.1. Falls back to tool-use for structured output when beta is
     not available. Retries on rate limit errors.
 
     If response_type is str or None, returns plain text.
-
-    Args:
-        skip_recording: If True, returns RawCallResult instead of recording.
-            Used internally by ask_llm to accumulate across SO retries.
+    Raises StructuredOutputParsingError (with usage) on parse failure.
     """
     from covenance.record import RawCallResult
 
@@ -114,7 +109,6 @@ def ask_anthropic[T](
     messages = [{"role": "user", "content": user_msg}]
     total_tpm_wait = 0.0
     tpm_retries = 0
-    started_at = datetime.now(UTC)
 
     for attempt in range(max_attempts):
         try:
@@ -141,7 +135,6 @@ def ask_anthropic[T](
                     kwargs["tool_choice"] = {"type": "tool", "name": tool_name}
                 response = api_client.messages.create(**kwargs)
 
-            ended_at = datetime.now(UTC)
             usage = _extract_anthropic_usage(response, model=model)
 
             if VERBOSE and attempt > 0:
@@ -151,21 +144,15 @@ def ask_anthropic[T](
             output = None
             if use_beta:
                 if response.parsed_output is None:
-                    if skip_recording:
-                        return RawCallResult(  # type: ignore[return-value]
-                            output=None, usage=usage, tpm_retries=tpm_retries, tpm_wait_seconds=total_tpm_wait
-                        )
                     raise StructuredOutputParsingError(
-                        f"Anthropic returned None parsed_output. Model: {model}"
+                        f"Anthropic returned None parsed_output. Model: {model}",
+                        usage=usage,
                     )
                 output = response.parsed_output
             elif not response.content:
-                if skip_recording:
-                    return RawCallResult(  # type: ignore[return-value]
-                        output=None, usage=usage, tpm_retries=tpm_retries, tpm_wait_seconds=total_tpm_wait
-                    )
                 raise StructuredOutputParsingError(
-                    f"Anthropic returned empty content. Model: {model}"
+                    f"Anthropic returned empty content. Model: {model}",
+                    usage=usage,
                 )
             elif is_plain_text:
                 output = response.content[0].text
@@ -176,45 +163,27 @@ def ask_anthropic[T](
                     None,
                 )
                 if tool_use_block is None:
-                    if skip_recording:
-                        return RawCallResult(  # type: ignore[return-value]
-                            output=None, usage=usage, tpm_retries=tpm_retries, tpm_wait_seconds=total_tpm_wait
-                        )
                     raise StructuredOutputParsingError(
-                        f"No tool_use block returned. Model: {model}, Content: {response.content}"
+                        f"No tool_use block returned. Model: {model}, Content: {response.content}",
+                        usage=usage,
                     )
                 try:
                     output = response_type(**tool_use_block.input)
                 except Exception as e:
-                    if skip_recording:
-                        return RawCallResult(  # type: ignore[return-value]
-                            output=None, usage=usage, tpm_retries=tpm_retries, tpm_wait_seconds=total_tpm_wait
-                        )
                     raise StructuredOutputParsingError(
-                        f"Failed to parse as {response_type}: {e}. Input: {tool_use_block.input}"
+                        f"Failed to parse as {response_type}: {e}. Input: {tool_use_block.input}",
+                        usage=usage,
                     ) from e
 
-            if skip_recording:
-                return RawCallResult(  # type: ignore[return-value]
-                    output=output,
-                    usage=usage,
-                    tpm_retries=tpm_retries,
-                    tpm_wait_seconds=total_tpm_wait,
-                )
-
-            from covenance.record import record_llm_call
-            record_llm_call(
-                model=model,
-                provider="anthropic",
+            return RawCallResult(
+                output=output,
                 usage=usage,
-                tpm_retry_wait_seconds=total_tpm_wait,
                 tpm_retries=tpm_retries,
-                started_at=started_at,
-                ended_at=ended_at,
-                record_store=record_store,
+                tpm_wait_seconds=total_tpm_wait,
             )
 
-            return output  # type: ignore[return-value]
+        except StructuredOutputParsingError:
+            raise  # Don't catch our own exceptions
 
         except Exception as e:
             if not _is_rate_limit_error(e) or attempt == max_attempts - 1:
@@ -265,11 +234,12 @@ if __name__ == "__main__":
         rating: float
         key_themes: list[str]
 
-    result = ask_anthropic(
+    raw = ask_anthropic(
         user_msg="Review the movie 'Inception' by Christopher Nolan.",
         response_type=MovieReview,
         model=ClaudeModels.haiku45,
     )
+    result = raw.output
 
     print(f"Movie: {result.movie_title}")
     print(f"Sentiment: {result.sentiment}")

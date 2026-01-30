@@ -246,7 +246,6 @@ class Covenance:
         accumulated_output = 0
 
         for attempt in range(max_attempts):
-            raw_result: RawCallResult | None = None
             try:
                 raw_result = llm_fn(
                     user_msg=user_msg,
@@ -254,9 +253,7 @@ class Covenance:
                     sys_msg=sys_msg,
                     model=model,
                     client_override=client,
-                    record_store=self._record_store,
                     temperature=temperature,
-                    skip_recording=True,
                 )
 
                 # Accumulate TPM retry info from this attempt
@@ -265,18 +262,13 @@ class Covenance:
 
                 result = raw_result.output
 
-                # Check for parsing failure (provider returns None output when skip_recording)
-                if result is None and llm_type not in (None, str):
-                    raise StructuredOutputParsingError(
-                        f"LLM returned None output for structured type {llm_type}"
-                    )
-
                 if llm_type not in (None, str):
                     try:
                         result = TypeAdapter(llm_type).validate_python(result)
                     except ValidationError as exc:
                         raise StructuredOutputParsingError(
-                            "Structured LLM output did not match expected schema."
+                            "Structured LLM output did not match expected schema.",
+                            usage=raw_result.usage,
                         ) from exc
 
                 # Success! Now record consolidated result
@@ -318,13 +310,11 @@ class Covenance:
 
                 return adapter.unwrap(result)
 
-            except StructuredOutputParsingError:
-                # Accumulate tokens from this failed attempt (if we got usage info)
-                if raw_result is not None:
-                    accumulated_input += raw_result.usage.prompt_tokens
-                    accumulated_output += raw_result.usage.completion_tokens
-                    total_tpm_retries += raw_result.tpm_retries
-                    total_tpm_wait += raw_result.tpm_wait_seconds
+            except StructuredOutputParsingError as e:
+                # Accumulate tokens from this failed attempt (if usage available)
+                if e.usage is not None:
+                    accumulated_input += e.usage.prompt_tokens
+                    accumulated_output += e.usage.completion_tokens
 
                 structured_output_retries += 1
 

@@ -11,7 +11,7 @@ from covenance.models import GrokModels
 if TYPE_CHECKING:
     from openai import OpenAI
 
-    from covenance.record import RecordStore
+    from covenance.record import RawCallResult
 
 GROK_BASE_URL = "https://api.x.ai/v1"
 
@@ -34,11 +34,9 @@ def ask_grok[T](
     model: str = GrokModels.grok4_fast.value,
     *,
     client_override: "OpenAI | None" = None,
-    record_store: "RecordStore | None" = None,
     temperature: float | None = None,
-    skip_recording: bool = False,
-) -> T:
-    """Call xAI Grok API with automatic retry."""
+) -> "RawCallResult":
+    """Call xAI Grok API with automatic retry. Returns RawCallResult."""
     api_client = client_override or client  # type: ignore[assignment]
     return ask_openai_compatible_structured(
         client=api_client,
@@ -47,7 +45,5 @@ def ask_grok[T](
         sys_msg=sys_msg,
         model=model,
         provider="grok",
-        record_store=record_store,
         temperature=temperature,
-        skip_recording=skip_recording,
     )

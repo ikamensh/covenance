@@ -1,14 +1,23 @@
 """Exceptions for LLM API clients."""
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from covenance.record import TokenUsage
+
 
 class StructuredOutputParsingError(ValueError):
     """Exception raised when LLM API returns a response but parsed field is None.
 
     This typically indicates a schema mismatch or parsing error. The unified
     wrapper will retry these errors automatically.
+
+    Carries token usage so callers can accumulate costs across retries.
     """
 
-    pass
+    def __init__(self, message: str, usage: "TokenUsage | None" = None):
+        super().__init__(message)
+        self.usage = usage
 
 
 class MissingProviderError(ImportError):

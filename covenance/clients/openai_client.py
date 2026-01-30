@@ -13,7 +13,7 @@ from covenance.models import OpenAIModels
 if TYPE_CHECKING:
     from openai import OpenAI
 
-    from covenance.record import RecordStore, TokenUsage
+    from covenance.record import RawCallResult, TokenUsage
 
 T = TypeVar("T")
 
@@ -103,15 +103,12 @@ def ask_openai_compatible_structured[T](
     sys_msg: str | None = None,
     model: str = "gpt-4o",
     provider: str = "openai",
-    record_store: RecordStore | None = None,
     temperature: float | None = None,
-    skip_recording: bool = False,
-) -> T:
+) -> "RawCallResult":
     """Execute structured call against an OpenAI-compatible API with retries.
 
-    Args:
-        skip_recording: If True, returns RawCallResult instead of recording.
-            Used internally by ask_llm to accumulate across SO retries.
+    Always returns RawCallResult. Raises StructuredOutputParsingError (with usage)
+    on parse failure.
     """
     from openai import RateLimitError
 
@@ -120,8 +117,8 @@ def ask_openai_compatible_structured[T](
     max_attempts = 100
     total_tpm_wait = 0.0
     tpm_retries = 0
-    started_at = datetime.now(UTC)
     is_plain_text = response_type is str or response_type is None
+
     for attempt in range(max_attempts):
         try:
             if VERBOSE and attempt > 0:
@@ -147,46 +144,21 @@ def ask_openai_compatible_structured[T](
                 )
                 output = response.output_parsed
 
-            ended_at = datetime.now(UTC)
             usage = _extract_openai_compatible_usage(
                 response, model=model, provider=provider
             )
 
             if output is None:
-                if skip_recording:
-                    # Return RawCallResult with None output so caller can track usage
-                    return RawCallResult(  # type: ignore[return-value]
-                        output=None,
-                        usage=usage,
-                        tpm_retries=tpm_retries,
-                        tpm_wait_seconds=total_tpm_wait,
-                    )
                 raise StructuredOutputParsingError(
-                    f"Empty output from {provider}/{model}"
+                    f"Empty output from {provider}/{model}", usage=usage
                 )
 
-            if skip_recording:
-                return RawCallResult(  # type: ignore[return-value]
-                    output=output,
-                    usage=usage,
-                    tpm_retries=tpm_retries,
-                    tpm_wait_seconds=total_tpm_wait,
-                )
-
-            from covenance.record import record_llm_call
-
-            record_llm_call(
-                model=model,
-                provider=provider,
+            return RawCallResult(
+                output=output,
                 usage=usage,
-                tpm_retry_wait_seconds=total_tpm_wait,
                 tpm_retries=tpm_retries,
-                started_at=started_at,
-                ended_at=ended_at,
-                record_store=record_store,
+                tpm_wait_seconds=total_tpm_wait,
             )
-
-            return output  # type: ignore[return-value]
 
         except RateLimitError as e:
             if attempt == max_attempts - 1:
@@ -200,6 +172,8 @@ def ask_openai_compatible_structured[T](
             total_tpm_wait += wait_time
             tpm_retries += 1
 
+    raise RuntimeError("ask_openai_compatible_structured exhausted retry loop")
+
 
 def ask_openai[T](
     user_msg: str,
@@ -208,11 +182,9 @@ def ask_openai[T](
     model: str = OpenAIModels.gpt5.value,
     *,
     client_override: OpenAI | None = None,
-    record_store: RecordStore | None = None,
     temperature: float | None = None,
-    skip_recording: bool = False,
-) -> T:
-    """Call OpenAI API with automatic retry."""
+) -> "RawCallResult":
+    """Call OpenAI API with automatic retry. Returns RawCallResult."""
     api_client = client_override or client  # type: ignore[assignment]
     return ask_openai_compatible_structured(
         client=api_client,
@@ -221,9 +193,7 @@ def ask_openai[T](
         sys_msg=sys_msg,
         model=model,
         provider="openai",
-        record_store=record_store,
         temperature=temperature,
-        skip_recording=skip_recording,
     )
 
 
@@ -234,10 +204,9 @@ if __name__ == "__main__":
         text: str
         number: int
 
-    out = ask_openai(
+    result = ask_openai(
         "What is the capital?",
         response_type=Response,
         model="o4-mini",
-        # sys_msg="You are guessy assistant. Guess any missing information. Never ask for any clarifications."
     )
-    print(f"Result: {out}")
+    print(f"Result: {result.output}")

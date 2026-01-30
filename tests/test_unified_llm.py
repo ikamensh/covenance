@@ -227,10 +227,8 @@ def test_ask_llm_structured_with_consensus_makes_multiple_calls():
             call_count["candidate"] += 1
             result = candidate_responses[candidate_index % len(candidate_responses)]
             candidate_index += 1
-        # Handle skip_recording
-        if kwargs.get("skip_recording", False):
-            return RawCallResult(output=result, usage=_mock_usage())
-        return result
+        # Provider functions always return RawCallResult
+        return RawCallResult(output=result, usage=_mock_usage())
 
     with patch("covenance.clients.google_client.ask_gemini") as mock_ask:
         mock_ask.side_effect = mock_ask_gemini
@@ -278,10 +276,8 @@ def test_ask_llm_structured_with_consensus_integration_prompt():
             result = integration_response
         else:
             result = candidate_response
-        # Handle skip_recording
-        if kwargs.get("skip_recording", False):
-            return RawCallResult(output=result, usage=_mock_usage())
-        return result
+        # Provider functions always return RawCallResult
+        return RawCallResult(output=result, usage=_mock_usage())
 
     with patch("covenance.clients.google_client.ask_gemini") as mock_ask:
         mock_ask.side_effect = mock_ask_gemini
@@ -337,10 +333,8 @@ def test_ask_llm_structured_with_consensus_cycles_models():
                 }
             )
             result = candidate_response
-        # Handle skip_recording
-        if kwargs.get("skip_recording", False):
-            return RawCallResult(output=result, usage=_mock_usage())
-        return result
+        # Provider functions always return RawCallResult
+        return RawCallResult(output=result, usage=_mock_usage())
 
     # Models without special prefixes route to OpenAI
     with patch("covenance.clients.openai_client.ask_openai") as mock_ask:
@@ -389,10 +383,8 @@ def test_ask_llm_structured_with_consensus_uses_base_model_when_no_additional():
                 }
             )
             result = candidate_response
-        # Handle skip_recording
-        if kwargs.get("skip_recording", False):
-            return RawCallResult(output=result, usage=_mock_usage())
-        return result
+        # Provider functions always return RawCallResult
+        return RawCallResult(output=result, usage=_mock_usage())
 
     with patch("covenance.clients.google_client.ask_gemini") as mock_ask:
         mock_ask.side_effect = mock_ask_gemini
@@ -436,10 +428,8 @@ def test_ask_llm_structured_with_consensus_empty_additional_models_uses_base():
                 }
             )
             result = candidate_response
-        # Handle skip_recording
-        if kwargs.get("skip_recording", False):
-            return RawCallResult(output=result, usage=_mock_usage())
-        return result
+        # Provider functions always return RawCallResult
+        return RawCallResult(output=result, usage=_mock_usage())
 
     with patch("covenance.clients.google_client.ask_gemini") as mock_ask:
         mock_ask.side_effect = mock_ask_gemini

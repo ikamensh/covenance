@@ -94,9 +94,8 @@ def test_ask_anthropic_plain_text(mock_sleep, mock_record, mock_client):
 
     result = ask_anthropic("Hello", response_type=str)
 
-    assert result == "Hello, world!"
+    assert result.output == "Hello, world!"
     mock_client.messages.create.assert_called_once()
-    mock_record.assert_called_once()
 
 
 @pytest.mark.skipif(
@@ -119,9 +118,9 @@ def test_ask_anthropic_structured_output(mock_sleep, mock_record, mock_client):
 
     result = ask_anthropic("Hello", response_type=SampleResponse)
 
-    assert isinstance(result, SampleResponse)
-    assert result.answer == "test"
-    assert result.value == 42
+    assert isinstance(result.output, SampleResponse)
+    assert result.output.answer == "test"
+    assert result.output.value == 42
     mock_client.beta.messages.parse.assert_called_once()
 
 
@@ -168,7 +167,7 @@ def test_ask_anthropic_retries_on_rate_limit(mock_sleep, mock_record, mock_clien
 
     result = ask_anthropic("Hello", response_type=str)
 
-    assert result == "Success"
+    assert result.output == "Success"
     assert mock_client.messages.create.call_count == 2
     assert mock_sleep.call_count == 1
 
@@ -304,7 +303,7 @@ def test_ask_anthropic_with_client_override(mock_sleep, mock_record, mock_client
 
     result = ask_anthropic("Hello", response_type=str, client_override=override_client)
 
-    assert result == "Response"
+    assert result.output == "Response"
     override_client.messages.create.assert_called_once()
     mock_client.messages.create.assert_not_called()
 
@@ -388,7 +387,7 @@ def test_ask_anthropic_retries_on_unexpected_rate_limit_error(
 
     result = ask_anthropic("Hello", response_type=str)
 
-    assert result == "Success"
+    assert result.output == "Success"
     assert mock_client.messages.create.call_count == 2
     assert mock_sleep.call_count == 1
 

@@ -21,7 +21,7 @@ from covenance.retry import exponential_backoff
 if TYPE_CHECKING:
     from mistralai import Mistral
 
-    from covenance.record import RecordStore
+    from covenance.record import RawCallResult
 
 T = TypeVar("T")
 
@@ -89,11 +89,9 @@ def ask_mistral[T](
     model: str = MistralModels.small.value,
     *,
     client_override: "Mistral | None" = None,
-    record_store: "RecordStore | None" = None,
     temperature: float | None = None,
-    skip_recording: bool = False,
-) -> T:
-    """Call Mistral API with structured output using native parse method.
+) -> "RawCallResult":
+    """Call Mistral API with structured output using native parse method. Returns RawCallResult.
 
     Uses Mistral's native client.chat.parse() method to get structured Pydantic
     output directly. Retries up to 100 times when encountering rate limit errors.
@@ -105,10 +103,7 @@ def ask_mistral[T](
     multiplying successful attempt's tokens by the number of JSON retries.
 
     If response_type is str or None, performs a standard chat completion and returns the text.
-
-    Args:
-        skip_recording: If True, returns RawCallResult instead of recording.
-            Used internally by ask_llm to accumulate across SO retries.
+    Raises StructuredOutputParsingError (with usage) on parse failure.
     """
     from mistralai.models import HTTPValidationError, SDKError
 
@@ -117,16 +112,14 @@ def ask_mistral[T](
     max_attempts = 100
     api_client = client_override or client  # type: ignore[assignment]
 
-    # Build messages array
     messages = []
     if sys_msg:
         messages.append({"role": "system", "content": sys_msg})
     messages.append({"role": "user", "content": user_msg})
 
-    total_tpm_wait = 0.0  # Accumulate TPM retry wait time
+    total_tpm_wait = 0.0
     tpm_retries = 0
-    started_at = datetime.now(UTC)  # Record absolute start time
-    json_parse_attempts = 0  # Track JSON parse retries separately
+    json_parse_attempts = 0
 
     is_plain_text = response_type is str or response_type is None
 
@@ -138,14 +131,12 @@ def ask_mistral[T](
                 )
 
             if is_plain_text:
-                # Use standard completion for plain text
                 response = api_client.chat.complete(
                     model=model,
                     messages=messages,
                     temperature=temperature,
                 )
             else:
-                # Use native structured output via chat.parse
                 response = api_client.chat.parse(
                     model=model,
                     messages=messages,
@@ -153,7 +144,6 @@ def ask_mistral[T](
                     temperature=temperature,
                 )
 
-            ended_at = datetime.now(UTC)  # Record absolute end time
             usage = _extract_mistral_usage(response, model=model)
 
             if VERBOSE and attempt > 0:
@@ -164,55 +154,33 @@ def ask_mistral[T](
             if is_plain_text:
                 content = response.choices[0].message.content
                 if content is None:
-                    if skip_recording:
-                        return RawCallResult(  # type: ignore[return-value]
-                            output=None, usage=usage, tpm_retries=tpm_retries,
-                            tpm_wait_seconds=total_tpm_wait, json_retries=json_parse_attempts
-                        )
                     raise StructuredOutputParsingError(
                         f"Mistral API returned response but content field is None. "
-                        f"Model: {model}, response_type: {response_type}"
+                        f"Model: {model}, response_type: {response_type}",
+                        usage=usage,
                     )
                 output = content
             else:
-                # Access the parsed Pydantic object
                 parsed = response.choices[0].message.parsed
                 if parsed is None:
-                    if skip_recording:
-                        return RawCallResult(  # type: ignore[return-value]
-                            output=None, usage=usage, tpm_retries=tpm_retries,
-                            tpm_wait_seconds=total_tpm_wait, json_retries=json_parse_attempts
-                        )
                     raise StructuredOutputParsingError(
                         f"Mistral API returned response but parsed field is None. "
                         f"This may indicate a schema mismatch or parsing error. "
-                        f"Model: {model}, response_type: {response_type}"
+                        f"Model: {model}, response_type: {response_type}",
+                        usage=usage,
                     )
                 output = parsed
 
-            if skip_recording:
-                return RawCallResult(  # type: ignore[return-value]
-                    output=output,
-                    usage=usage,
-                    tpm_retries=tpm_retries,
-                    tpm_wait_seconds=total_tpm_wait,
-                    json_retries=json_parse_attempts,
-                )
-
-            from covenance.record import record_llm_call
-
-            record_llm_call(
-                model=model,
-                provider="mistral",
+            return RawCallResult(
+                output=output,
                 usage=usage,
-                tpm_retry_wait_seconds=total_tpm_wait,
                 tpm_retries=tpm_retries,
-                started_at=started_at,
-                ended_at=ended_at,
-                record_store=record_store,
+                tpm_wait_seconds=total_tpm_wait,
+                json_retries=json_parse_attempts,
             )
 
-            return output  # type: ignore[return-value]
+        except StructuredOutputParsingError:
+            raise  # Don't catch our own exceptions
 
         except json.JSONDecodeError as e:
             # Mistral's probabilistic JSON output occasionally produces invalid JSON
@@ -222,49 +190,40 @@ def ask_mistral[T](
                     print(
                         f"[Mistral Retry] JSON parse failed {json_parse_attempts} times, giving up"
                     )
+                # No usage available on JSON parse failure
                 raise StructuredOutputParsingError(
                     f"Mistral returned invalid JSON after {json_parse_attempts} attempts. "
-                    f"Last error: {e}. Model: {model}, response_type: {response_type}"
+                    f"Last error: {e}. Model: {model}, response_type: {response_type}",
+                    usage=None,
                 ) from e
 
             if VERBOSE:
                 print(
                     f"[Mistral Retry] JSON parse error (attempt {json_parse_attempts}/{JSON_PARSE_MAX_RETRIES}): {e}"
                 )
-            # Brief pause before retry
             time.sleep(0.5)
             continue
 
         except (SDKError, HTTPValidationError) as e:
-            # SDKError is the main rate limit error type from Mistral API
-            # HTTPValidationError might also occur for validation issues
             error_str = str(e)
             error_type = type(e).__name__
 
-            # Check if it's a rate limit error (status 429)
             is_rate_limit = False
-
-            # Check for SDKError with status_code attribute
             if isinstance(e, SDKError) and hasattr(e, "status_code"):
                 is_rate_limit = e.status_code == 429
-            # Also check error message content
             if "429" in error_str or "rate limit" in error_str.lower():
                 is_rate_limit = True
 
             if not is_rate_limit:
-                # Not a rate limit error, re-raise immediately
                 if VERBOSE:
                     print(f"[Mistral Retry] Non-rate-limit error: {error_type}")
                 raise
 
             if attempt == max_attempts - 1:
-                # Last attempt failed, re-raise the exception
                 if VERBOSE:
                     print(f"[Mistral Retry] ✗ Failed after {max_attempts} attempts")
                 raise
 
-            # Try to parse wait time from error message first
-            # If not found, use exponential backoff
             explicit_wait = _parse_wait_time_from_error(e)
             if explicit_wait is not None:
                 wait_time = explicit_wait
@@ -274,7 +233,6 @@ def ask_mistral[T](
                         f"using explicit wait time {wait_time:.2f}s from error message"
                     )
             else:
-                # Use exponential backoff with jitter
                 wait_time = exponential_backoff(attempt)
                 if VERBOSE:
                     print(
@@ -290,7 +248,6 @@ def ask_mistral[T](
             tpm_retries += 1
 
         except Exception as e:
-            # Handle other potential errors (network, API changes, etc.)
             error_str = str(e)
             is_rate_limit = "429" in error_str or "rate limit" in error_str.lower()
 
@@ -301,13 +258,8 @@ def ask_mistral[T](
                     )
                 raise
 
-            # Try to parse wait time from error message first
             explicit_wait = _parse_wait_time_from_error(e)
-            if explicit_wait is not None:
-                wait_time = explicit_wait
-            else:
-                # Use exponential backoff
-                wait_time = exponential_backoff(attempt)
+            wait_time = explicit_wait if explicit_wait is not None else exponential_backoff(attempt)
 
             if VERBOSE:
                 print(
@@ -318,6 +270,8 @@ def ask_mistral[T](
             time.sleep(wait_time)
             total_tpm_wait += wait_time
             tpm_retries += 1
+
+    raise RuntimeError("ask_mistral exhausted retry loop")
 
 
 def _extract_mistral_usage(response, model: str) -> TokenUsage:
@@ -350,11 +304,12 @@ if __name__ == "__main__":
         rating: float
         key_themes: list[str]
 
-    result = ask_mistral(
+    raw = ask_mistral(
         user_msg="Review the movie 'Inception' by Christopher Nolan.",
         response_type=MovieReview,
         model=MistralModels.small.value,
     )
+    result = raw.output
 
     print(f"Movie: {result.movie_title}")
     print(f"Sentiment: {result.sentiment}")
