@@ -1,22 +1,28 @@
 """Instance-scoped LLM access with isolated keys and call records.
 
+Uses pydantic-ai as the backend for multi-provider LLM calls.
 Module-level helpers route through the default instance so legacy API keeps working.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import copy_context
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import TypeAdapter, ValidationError
+import httpx
+from httpx import HTTPStatusError
+from pydantic_ai import Agent
+from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_after
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt
 
-from ._caller_context import capture_caller_context
-from ._lazy_client import LazyClient
-from .exceptions import StructuredOutputParsingError
+from ._caller_context import capture_caller_context, get_caller_info
 from .keys import (
     get_anthropic_api_key,
     get_gemini_api_key,
@@ -24,13 +30,109 @@ from .keys import (
     get_mistral_api_key,
     get_openai_api_key,
     get_openrouter_api_key,
-    require_api_key,
 )
-from .record import Record, RecordStore, get_env_records_dir
-from .response_adapter import ResponseTypeAdapter
+from .record import Record, RecordStore, TokenUsage, get_env_records_dir
+
+
+@dataclass
+class RetryTracker:
+    """Tracks retry attempts and wait times for a single LLM call."""
+
+    retries: int = 0
+    wait_seconds: float = 0.0
+
+    def before_sleep(self, retry_state: RetryCallState) -> None:
+        """Called before sleeping between retries."""
+        wait_time = retry_state.next_action.sleep if retry_state.next_action else 0.0
+        self.wait_seconds += wait_time
+
+    def after_retry(self, retry_state: RetryCallState) -> None:
+        """Called after each retry attempt."""
+        self.retries += 1
+
+
+def _create_retry_http_client(
+    tracker: RetryTracker,
+    max_retries: int = 10,
+    max_wait: float = 300.0,
+    timeout: float = 600.0,
+) -> httpx.AsyncClient:
+    """Create an HTTP client with rate limit retry support.
+
+    Args:
+        tracker: RetryTracker to record retry stats
+        max_retries: Maximum number of retry attempts (default: 10)
+        max_wait: Maximum wait time per retry in seconds (default: 300s / 5min)
+        timeout: HTTP request timeout in seconds (default: 600s / 10min)
+    """
+
+    def validate_response(response: httpx.Response) -> None:
+        """Raise for retryable status codes (429 rate limit, 5xx server errors)."""
+        if response.status_code in (429, 502, 503, 504):
+            response.raise_for_status()
+
+    transport = AsyncTenacityTransport(
+        config=RetryConfig(
+            retry=retry_if_exception_type(HTTPStatusError),
+            wait=wait_retry_after(max_wait=max_wait),
+            stop=stop_after_attempt(max_retries),
+            before_sleep=tracker.before_sleep,
+            after=tracker.after_retry,
+            reraise=True,
+        ),
+        validate_response=validate_response,
+    )
+    return httpx.AsyncClient(transport=transport, timeout=timeout)
+
 
 # Registry of all Covenance clients created in this process
 _all_clients: list[Covenance] = []
+
+
+def _normalize_model(model: str | object) -> str:
+    """Convert model to string, handling enum values."""
+    if hasattr(model, "value"):  # Enum
+        return str(model.value)
+    return str(model)
+
+
+def _get_pydantic_ai_model(model: str, provider: str) -> str:
+    """Convert covenance model name to pydantic-ai model spec.
+
+    pydantic-ai uses format 'provider:model_name', e.g.:
+    - openai:gpt-4
+    - anthropic:claude-3-opus
+    - google-gla:gemini-2.5-flash
+    - mistral:mistral-small-latest
+    - xai:grok-2
+    - openrouter:provider/model
+    """
+    provider_map = {
+        "openai": "openai",
+        "anthropic": "anthropic",
+        "gemini": "google-gla",
+        "mistral": "mistral",
+        "grok": "xai",
+        "openrouter": "openrouter",
+    }
+    pydantic_provider = provider_map.get(provider, provider)
+    return f"{pydantic_provider}:{model}"
+
+
+def _get_provider(model: str) -> str:
+    """Determine provider from model name."""
+    if model.startswith("gemini"):
+        return "gemini"
+    elif model.startswith(("mistral", "ministral", "codestral")):
+        return "mistral"
+    elif model.startswith("claude"):
+        return "anthropic"
+    elif model.startswith("grok"):
+        return "grok"
+    elif "/" in model:
+        return "openrouter"
+    else:
+        return "openai"
 
 
 class Covenance:
@@ -59,133 +161,106 @@ class Covenance:
         self._gemini_api_key = gemini_api_key
         self._openrouter_api_key = openrouter_api_key
         self._grok_api_key = grok_api_key
-
         self._record_store = RecordStore(records_dir=records_dir, label=label)
-        has_override = any(
-            [
-                openai_api_key,
-                anthropic_api_key,
-                mistral_api_key,
-                gemini_api_key,
-                openrouter_api_key,
-                grok_api_key,
-            ]
-        )
-        self._clients = self._build_clients() if has_override else None
-        self._validate_explicit_keys()
-
-        # Register this client in the global registry
         _all_clients.append(self)
-
-    def _validate_explicit_keys(self) -> None:
-        """Eagerly create clients for explicitly-provided keys.
-
-        Triggers SDK client instantiation to catch configuration errors early,
-        rather than waiting for the first API call.
-        """
-        if self._clients is None:
-            return
-        explicit_keys = [
-            (self._openai_api_key, "openai"),
-            (self._anthropic_api_key, "anthropic"),
-            (self._mistral_api_key, "mistral"),
-            (self._gemini_api_key, "gemini"),
-            (self._openrouter_api_key, "openrouter"),
-            (self._grok_api_key, "grok"),
-        ]
-        for key, provider in explicit_keys:
-            if key is not None:
-                self._clients[provider].resolve()
-
-    def _require_key(
-        self,
-        override: str | None,
-        provider: str,
-        getter: Callable[[], str | None],
-    ) -> str:
-        return require_api_key(override or getter(), provider)
-
-    def _create_openai_client(self):
-        from openai import OpenAI
-
-        api_key = self._require_key(self._openai_api_key, "openai", get_openai_api_key)
-        return OpenAI(api_key=api_key)
-
-    def _create_openrouter_client(self):
-        from openai import OpenAI
-
-        from .clients.openrouter_client import OPENROUTER_BASE_URL
-
-        api_key = self._require_key(
-            self._openrouter_api_key, "openrouter", get_openrouter_api_key
-        )
-        return OpenAI(api_key=api_key, base_url=OPENROUTER_BASE_URL)
-
-    def _create_gemini_client(self):
-        from google import genai
-
-        api_key = self._require_key(self._gemini_api_key, "gemini", get_gemini_api_key)
-        return genai.Client(api_key=api_key)
-
-    def _create_mistral_client(self):
-        from mistralai import Mistral
-
-        api_key = self._require_key(
-            self._mistral_api_key, "mistral", get_mistral_api_key
-        )
-        return Mistral(api_key=api_key)
-
-    def _create_anthropic_client(self):
-        from anthropic import Anthropic
-
-        api_key = self._require_key(
-            self._anthropic_api_key, "anthropic", get_anthropic_api_key
-        )
-        return Anthropic(api_key=api_key)
-
-    def _create_grok_client(self):
-        from openai import OpenAI
-
-        from .clients.grok_client import GROK_BASE_URL
-
-        api_key = self._require_key(self._grok_api_key, "grok", get_grok_api_key)
-        return OpenAI(api_key=api_key, base_url=GROK_BASE_URL)
-
-    def _build_clients(self) -> dict[str, Any]:
-        return {
-            "openai": LazyClient(self._create_openai_client, label="openai"),
-            "openrouter": LazyClient(
-                self._create_openrouter_client, label="openrouter"
-            ),
-            "gemini": LazyClient(self._create_gemini_client, label="gemini"),
-            "mistral": LazyClient(self._create_mistral_client, label="mistral"),
-            "anthropic": LazyClient(self._create_anthropic_client, label="anthropic"),
-            "grok": LazyClient(self._create_grok_client, label="grok"),
-        }
 
     def get_record_store(self) -> RecordStore:
         return self._record_store
 
-    def _get_client(self, provider: str) -> Any | None:
-        """Get client for provider, or None to use module-level default."""
-        if self._clients is None:
-            return None
-        return self._clients.get(provider)
+    def _get_api_key(self, provider: str) -> str | None:
+        """Get API key for provider (explicit override or from env)."""
+        key_getters: dict[str, tuple[str | None, Callable[[], str | None]]] = {
+            "openai": (self._openai_api_key, get_openai_api_key),
+            "anthropic": (self._anthropic_api_key, get_anthropic_api_key),
+            "mistral": (self._mistral_api_key, get_mistral_api_key),
+            "gemini": (self._gemini_api_key, get_gemini_api_key),
+            "openrouter": (self._openrouter_api_key, get_openrouter_api_key),
+            "grok": (self._grok_api_key, get_grok_api_key),
+        }
+        if provider in key_getters:
+            override, getter = key_getters[provider]
+            return override or getter()
+        return None
 
-    def _get_provider(self, model: str) -> str:
-        """Determine provider from model name."""
-        if model.startswith("gemini"):
-            return "gemini"
-        elif model.startswith(("mistral", "ministral", "codestral")):
-            return "mistral"
-        elif model.startswith("claude"):
-            return "anthropic"
-        elif model.startswith("grok"):
-            return "grok"
-        elif "/" in model:
-            return "openrouter"
+    def _create_model_with_retry(
+        self, model_name: str, provider: str, tracker: RetryTracker
+    ) -> Any:
+        """Create a pydantic-ai model with retry-enabled HTTP client.
+
+        Returns a model object suitable for Agent(), with automatic rate limit retries.
+        """
+        api_key = self._get_api_key(provider)
+        http_client = _create_retry_http_client(tracker)
+
+        if provider == "openai":
+            from pydantic_ai.models.openai import OpenAIChatModel
+            from pydantic_ai.providers.openai import OpenAIProvider
+
+            return OpenAIChatModel(
+                model_name,
+                provider=OpenAIProvider(api_key=api_key, http_client=http_client),
+            )
+
+        elif provider == "anthropic":
+            from anthropic import AsyncAnthropic
+            from pydantic_ai.models.anthropic import AnthropicModel
+            from pydantic_ai.providers.anthropic import AnthropicProvider
+
+            anthropic_client = AsyncAnthropic(api_key=api_key, http_client=http_client)
+            return AnthropicModel(
+                model_name,
+                provider=AnthropicProvider(anthropic_client=anthropic_client),
+            )
+
+        elif provider == "gemini":
+            from pydantic_ai.models.google import GoogleModel
+            from pydantic_ai.providers.google import GoogleProvider
+
+            return GoogleModel(
+                model_name,
+                provider=GoogleProvider(api_key=api_key, http_client=http_client),
+            )
+
+        elif provider == "mistral":
+            from mistralai import Mistral
+            from pydantic_ai.models.mistral import MistralModel
+            from pydantic_ai.providers.mistral import MistralProvider
+
+            mistral_client = Mistral(api_key=api_key, async_client=http_client)
+            return MistralModel(
+                model_name, provider=MistralProvider(mistral_client=mistral_client)
+            )
+
+        elif provider == "grok":
+            # xAI native SDK doesn't support custom http_client, use OpenAI-compatible
+            from pydantic_ai.models.openai import OpenAIChatModel
+            from pydantic_ai.providers.openai import OpenAIProvider
+
+            grok_key = api_key or os.environ.get("XAI_API_KEY")
+            return OpenAIChatModel(
+                model_name,
+                provider=OpenAIProvider(
+                    api_key=grok_key,
+                    base_url="https://api.x.ai/v1",
+                    http_client=http_client,
+                ),
+            )
+
+        elif provider == "openrouter":
+            from pydantic_ai.models.openai import OpenAIChatModel
+            from pydantic_ai.providers.openai import OpenAIProvider
+
+            return OpenAIChatModel(
+                model_name,
+                provider=OpenAIProvider(
+                    api_key=api_key,
+                    base_url="https://openrouter.ai/api/v1",
+                    http_client=http_client,
+                ),
+            )
+
         else:
-            return "openai"
+            raise ValueError(f"Unknown provider: {provider}")
 
     def ask_llm[T](
         self,
@@ -197,7 +272,7 @@ class Covenance:
         max_parsing_retries: int = 2,
         temperature: float | None = None,
     ) -> T:
-        """Route to appropriate provider and make LLM call with given reponse type.
+        """Route to pydantic-ai Agent and make LLM call.
 
         Args:
             user_msg: User message/prompt
@@ -208,124 +283,79 @@ class Covenance:
                 - int, bool, float, list[X], tuple[...] - simple python types
             sys_msg: Optional system message
             max_parsing_retries: Retries for structured output parsing errors
-            temperature: Sampling temperature. None uses provider default.
-                Range varies by provider (Anthropic: 0-1, others: 0-2).
-                Note: temperature=0 aims for determinism but doesn't guarantee it
-                due to GPU floating-point non-determinism and backend variability.
+            temperature: Sampling temperature
         """
-        from datetime import UTC, datetime
+        from .response_adapter import ResponseTypeAdapter
 
-        from ._caller_context import get_caller_info
-        from .record import TokenUsage
+        # Normalize model (handle enums)
+        model = _normalize_model(model)
+        provider = _get_provider(model)
 
-        provider = self._get_provider(model)
-        client = self._get_client(provider)
-        max_attempts = max_parsing_retries + 1
-
-        # Import provider functions
-        from .clients.anthropic_client import ask_anthropic
-        from .clients.google_client import ask_gemini
-        from .clients.grok_client import ask_grok
-        from .clients.mistral_client import ask_mistral
-        from .clients.openai_client import ask_openai
-        from .clients.openrouter_client import ask_openrouter
-
-        llm_fn = {
-            "gemini": ask_gemini,
-            "mistral": ask_mistral,
-            "anthropic": ask_anthropic,
-            "openrouter": ask_openrouter,
-            "openai": ask_openai,
-            "grok": ask_grok,
-        }[provider]
+        # Create retry tracker and model with retry-enabled HTTP client
+        tracker = RetryTracker()
+        pydantic_model = self._create_model_with_retry(model, provider, tracker)
 
         # Adapt response_type for LLM API (wrap if needed)
         adapter = ResponseTypeAdapter(response_type)
         llm_type = adapter.get_llm_type()
 
-        # Accumulate data across retries
         started_at = datetime.now(UTC)
-        total_tpm_retries = 0
-        total_tpm_wait = 0.0
-        structured_output_retries = 0
-        accumulated_input = 0
-        accumulated_output = 0
 
-        for attempt in range(max_attempts):
-            try:
-                raw_result = llm_fn(
-                    user_msg=user_msg,
-                    response_type=llm_type,
-                    sys_msg=sys_msg,
-                    model=model,
-                    client_override=client,
-                    temperature=temperature,
-                )
+        # Determine output_type for pydantic-ai
+        is_plain_text = llm_type is None or llm_type is str
 
-                # Accumulate TPM retry info from this attempt
-                total_tpm_retries += raw_result.tpm_retries
-                total_tpm_wait += raw_result.tpm_wait_seconds
+        # Build model settings
+        model_settings: dict[str, Any] = {}
+        if temperature is not None:
+            model_settings["temperature"] = temperature
 
-                result = raw_result.output
+        # Create agent - don't pass output_type if plain text
+        agent_kwargs: dict[str, Any] = {
+            "instructions": sys_msg,
+            "retries": max_parsing_retries,
+        }
+        if not is_plain_text:
+            agent_kwargs["output_type"] = llm_type
 
-                if llm_type not in (None, str):
-                    try:
-                        result = TypeAdapter(llm_type).validate_python(result)
-                    except ValidationError as exc:
-                        raise StructuredOutputParsingError(
-                            "Structured LLM output did not match expected schema.",
-                            usage=raw_result.usage,
-                        ) from exc
+        agent = Agent(pydantic_model, **agent_kwargs)
+        result = agent.run_sync(user_msg, model_settings=model_settings)
 
-                # Success! Now record consolidated result
-                ended_at = datetime.now(UTC)
-                final_usage = raw_result.usage
+        ended_at = datetime.now(UTC)
 
-                # Estimate tokens from JSON parse retries (Mistral).
-                # Since SDK doesn't provide usage on parse failure, we estimate
-                # using the successful attempt's tokens.
-                json_retries = raw_result.json_retries
+        # Extract usage from pydantic-ai result
+        usage = result.usage()
+        token_usage = TokenUsage(
+            prompt_tokens=usage.input_tokens,
+            completion_tokens=usage.output_tokens,
+            total_tokens=usage.total_tokens,
+            cached_tokens=usage.cache_read_tokens,
+        )
 
-                total_input = final_usage.prompt_tokens + accumulated_input
-                total_output = final_usage.completion_tokens + accumulated_output
-                # Add estimated tokens from JSON retries
-                total_input += final_usage.prompt_tokens * json_retries
-                total_output += final_usage.completion_tokens * json_retries
+        # Extract structured output retries from pydantic-ai internal state
+        # Note: _state is private but the only way to access retry count
+        structured_retries = getattr(result, "_state", None)
+        structured_retries = (
+            getattr(structured_retries, "retries", 0) if structured_retries else 0
+        )
 
-                consolidated_usage = TokenUsage(
-                    prompt_tokens=total_input,
-                    completion_tokens=total_output,
-                    total_tokens=total_input + total_output,
-                    cached_tokens=final_usage.cached_tokens,
-                )
+        # Record the call with retry stats
+        caller_function, caller_file, caller_line = get_caller_info()
+        self._record_store.record_llm_call(
+            model=model,
+            provider=provider,
+            usage=token_usage,
+            started_at=started_at,
+            ended_at=ended_at,
+            tpm_retries=tracker.retries,
+            tpm_retry_wait_seconds=tracker.wait_seconds,
+            structured_output_retries=structured_retries,
+            caller_function=caller_function,
+            caller_file=caller_file,
+            caller_line=caller_line,
+        )
 
-                caller_function, caller_file, caller_line = get_caller_info()
-                self._record_store.record_llm_call(
-                    model=model,
-                    provider=provider,
-                    usage=consolidated_usage,
-                    started_at=started_at,
-                    ended_at=ended_at,
-                    tpm_retry_wait_seconds=total_tpm_wait,
-                    tpm_retries=total_tpm_retries,
-                    structured_output_retries=structured_output_retries + json_retries,
-                    caller_function=caller_function,
-                    caller_file=caller_file,
-                    caller_line=caller_line,
-                )
-
-                return adapter.unwrap(result)
-
-            except StructuredOutputParsingError as e:
-                # Accumulate tokens from this failed attempt (if usage available)
-                if e.usage is not None:
-                    accumulated_input += e.usage.prompt_tokens
-                    accumulated_output += e.usage.completion_tokens
-
-                structured_output_retries += 1
-
-                if attempt == max_attempts - 1:
-                    raise
+        # Unwrap result if needed
+        return adapter.unwrap(result.output) if not is_plain_text else result.output
 
     def llm_consensus[T](
         self,
@@ -351,7 +381,6 @@ class Covenance:
             integration_model: Model for integration (defaults to same as model)
             parallel: Whether to make calls in parallel (default: True)
         """
-        # Capture caller info before any calls (especially before spawning threads)
         capture_caller_context()
 
         if num_candidates == 1:
@@ -379,16 +408,12 @@ class Covenance:
         candidates: list[T] = []
         if parallel:
             with ThreadPoolExecutor(max_workers=num_candidates) as executor:
-                # Each thread needs its own context copy
                 futures = [
                     executor.submit(copy_context().run, make_candidate_call, i)
                     for i in range(num_candidates)
                 ]
                 for future in as_completed(futures):
-                    try:
-                        candidates.append(future.result())
-                    except Exception as e:
-                        raise RuntimeError(f"Failed to generate candidate: {e}") from e
+                    candidates.append(future.result())
         else:
             for i in range(num_candidates):
                 candidates.append(make_candidate_call(i))
@@ -433,26 +458,13 @@ Below are {len(candidates)} candidate answers generated by worker LLMs. Please i
         self._record_store.clear_records()
 
     def usage_summary(self) -> dict:
-        """Compute usage summary from this client's records.
-
-        Returns:
-            Dict with keys: calls, tokens_input, tokens_output, tokens_total,
-            cost_usd, models (set of "provider/model" strings).
-        """
+        """Compute usage summary from this client's records."""
         from .record import usage_summary as _usage_summary
 
         return _usage_summary(records=self.get_records())
 
     def print_usage(self, title: str | None = None, cost_format: str = "plain") -> None:
-        """Print a formatted usage summary to stdout for this client's records.
-
-        Args:
-            title: Header title for the summary block. If None, uses client label.
-            cost_format: How to format costs. Options:
-                - "plain": Always show dollars with 2 decimals (default)
-                - "cent": Show cents with 3 decimals for costs < $0.01, dollars otherwise
-                - "exponential": Show exponential notation for costs < $0.01, dollars otherwise
-        """
+        """Print a formatted usage summary to stdout for this client's records."""
         from .record import print_usage as _print_usage
 
         if title is None:

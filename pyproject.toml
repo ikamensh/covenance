@@ -33,20 +33,13 @@ classifiers = [
 ]
 dependencies = [
     "pydantic",
+    "pydantic-ai",
     "python-dotenv",
+    "tenacity",
+    "httpx",
 ]
 
 [project.optional-dependencies]
-openai = ["openai"]
-anthropic = ["anthropic"]
-google = ["google-genai"]
-mistral = ["mistralai"]
-all = [
-    "openai",
-    "anthropic",
-    "google-genai",
-    "mistralai",
-]
 dev = [
     "build",
     "pre-commit",

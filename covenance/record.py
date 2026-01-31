@@ -10,8 +10,6 @@ from threading import Lock
 
 from pydantic import BaseModel
 
-from ._caller_context import get_caller_info
-
 logger = logging.getLogger(__name__)
 
 DEFAULT_RECORDS_FILENAME = "llm_call_records.jsonl"
@@ -200,66 +198,6 @@ class TokenUsage(BaseModel):
     completion_tokens: int
     total_tokens: int
     cached_tokens: int = 0  # Tokens read from cache (provider-specific support)
-
-
-class RawCallResult(BaseModel):
-    """Internal result from a single LLM API call, used for deferred recording.
-
-    Providers return this when skip_recording=True, allowing the caller
-    to accumulate results across retries before creating a single Record.
-    """
-
-    output: object  # The LLM response (str, parsed model, etc.)
-    usage: TokenUsage
-    tpm_retries: int = 0
-    tpm_wait_seconds: float = 0.0
-    # JSON parse retries (Mistral). Since SDK doesn't provide usage on parse failure,
-    # caller can estimate wasted tokens as: usage * json_retries
-    json_retries: int = 0
-
-
-def record_llm_call(
-    *,
-    model: str,
-    provider: str,
-    usage: TokenUsage,
-    started_at: datetime,
-    ended_at: datetime,
-    tpm_retry_wait_seconds: float = 0.0,
-    tpm_retries: int = 0,
-    structured_output_retries: int = 0,
-    record_store: RecordStore | None = None,
-) -> None:
-    """Record an LLM call to the given store (or default) and log it."""
-    from .client import _default_client
-
-    duration = (ended_at - started_at).total_seconds()
-    store = record_store or _default_client.get_record_store()
-
-    caller_function, caller_file, caller_line = get_caller_info()
-
-    record = store.record_llm_call(
-        model=model,
-        provider=provider,
-        usage=usage,
-        started_at=started_at,
-        ended_at=ended_at,
-        tpm_retry_wait_seconds=tpm_retry_wait_seconds,
-        tpm_retries=tpm_retries,
-        structured_output_retries=structured_output_retries,
-        caller_function=caller_function,
-        caller_file=caller_file,
-        caller_line=caller_line,
-    )
-    cost_str = f"${record.cost_usd:.6f}" if record.cost_usd is not None else "n/a"
-    retry_info = ""
-    if tpm_retries or structured_output_retries:
-        retry_info = f" retries=(tpm={tpm_retries}, so={structured_output_retries})"
-    logger.info(
-        f"LLM call {provider}/{model} "
-        f"tokens={usage.total_tokens} (in={usage.prompt_tokens}, out={usage.completion_tokens}, cached={usage.cached_tokens}) "
-        f"cost={cost_str} duration={duration:.2f}s{retry_info}"
-    )
 
 
 def usage_summary(records: list[Record] | None = None) -> dict:

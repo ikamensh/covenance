@@ -8,7 +8,8 @@ from datetime import UTC, datetime
 
 import covenance
 from covenance import Covenance
-from covenance.record import TokenUsage, clear_records, get_records, record_llm_call
+from covenance.client import _default_client
+from covenance.record import TokenUsage, clear_records, get_records
 
 
 def _make_timestamps(duration_seconds: float) -> tuple[datetime, datetime]:
@@ -30,7 +31,7 @@ class TestClientRecordStores:
         clear_records()
         started_at, ended_at = _make_timestamps(0.4)
 
-        record_llm_call(
+        _default_client.get_record_store().record_llm_call(
             model="gpt-5",
             provider="openai",
             usage=TokenUsage(
@@ -51,8 +52,8 @@ class TestClientRecordStores:
         client = Covenance(label="isolation-test")
         started_at, ended_at = _make_timestamps(1.1)
 
-        # Record to the client's store via metrics.record_llm_call
-        record_llm_call(
+        # Record to the client's store directly
+        client.get_record_store().record_llm_call(
             model="gemini-2.5-flash",
             provider="gemini",
             usage=TokenUsage(
@@ -63,7 +64,6 @@ class TestClientRecordStores:
             ),
             started_at=started_at,
             ended_at=ended_at,
-            record_store=client.get_record_store(),
         )
 
         assert len(client.get_records()) == 1

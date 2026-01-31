@@ -27,7 +27,11 @@ eval = llm_consensus(
 
 print(eval.model_dump_json(indent=4))
 
+
 print_usage()
 print_call_timeline()
 print(f"\nRecords saved to: {DEMO_RECORDS_DIR}")
+
+for record in get_records():
+    print(record.model_dump_json(indent=4))
 

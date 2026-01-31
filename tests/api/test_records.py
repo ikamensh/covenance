@@ -3,7 +3,7 @@
 Tests the public interface of:
 - Record model
 - RecordStore class
-- Module-level record functions (record_llm_call, get_records, etc.)
+- Module-level record functions (get_records, clear_records, etc.)
 - Usage summary and printing functions
 """
 
@@ -14,14 +14,8 @@ import pytest
 from covenance.record import (
     Record,
     RecordStore,
-    TokenUsage,
-    clear_records,
-    get_llm_call_records_path,
-    get_records,
     load_records_from_jsonl,
     print_usage,
-    record_llm_call,
-    set_records_dir,
     usage_summary,
 )
 
@@ -56,65 +50,6 @@ def _make_record(
         started_at=started.isoformat(),
         ended_at=ended.isoformat(),
     )
-
-
-class TestRecordLLMCall:
-    """Tests for the record_llm_call function."""
-
-    def test_record_llm_call_is_always_logged(self):
-        """record_llm_call adds entries to the global record store."""
-        clear_records()
-        started_at, ended_at = _make_timestamps(1.2)
-
-        record_llm_call(
-            model="gpt-4o",
-            provider="openai",
-            usage=TokenUsage(
-                prompt_tokens=10,
-                completion_tokens=5,
-                total_tokens=15,
-                cached_tokens=0,
-            ),
-            started_at=started_at,
-            ended_at=ended_at,
-        )
-
-        records = get_records()
-        assert len(records) == 1
-        assert records[0].model == "gpt-4o"
-        assert records[0].duration_seconds == 1.2
-
-    def test_record_llm_call_persists_to_dir(self, tmp_path):
-        """Records are persisted to JSONL file when records_dir is set."""
-        clear_records()
-        set_records_dir(tmp_path)
-
-        try:
-            started_at, ended_at = _make_timestamps(2.0)
-            record_llm_call(
-                model="claude-haiku-4-5",
-                provider="anthropic",
-                usage=TokenUsage(
-                    prompt_tokens=5,
-                    completion_tokens=7,
-                    total_tokens=12,
-                    cached_tokens=0,
-                ),
-                started_at=started_at,
-                ended_at=ended_at,
-            )
-
-            records_path = get_llm_call_records_path()
-            assert records_path is not None
-            assert records_path.exists()
-
-            lines = records_path.read_text(encoding="utf-8").splitlines()
-            assert len(lines) == 1
-            parsed = Record.model_validate_json(lines[0])
-            assert parsed.model == "claude-haiku-4-5"
-            assert parsed.provider == "anthropic"
-        finally:
-            set_records_dir(None)
 
 
 class TestUsageSummary:
@@ -184,6 +119,40 @@ class TestUsageSummary:
         records = [_make_record(tokens_in=100, tokens_cached=30)]
         summary = usage_summary(records)
         assert summary["tokens_cached"] == 30
+
+    def test_retry_counts_tracked(self):
+        """TPM and structured output retries are aggregated."""
+        ended = datetime.now(UTC)
+        started = ended - timedelta(seconds=1.0)
+        records = [
+            Record(
+                model="gpt-4o",
+                provider="openai",
+                tokens_input=100,
+                tokens_output=50,
+                tokens_total=150,
+                duration_seconds=1.0,
+                started_at=started.isoformat(),
+                ended_at=ended.isoformat(),
+                tpm_retries=2,
+                structured_output_retries=1,
+            ),
+            Record(
+                model="gpt-4o",
+                provider="openai",
+                tokens_input=100,
+                tokens_output=50,
+                tokens_total=150,
+                duration_seconds=1.0,
+                started_at=started.isoformat(),
+                ended_at=ended.isoformat(),
+                tpm_retries=1,
+                structured_output_retries=3,
+            ),
+        ]
+        summary = usage_summary(records)
+        assert summary["tpm_retries"] == 3
+        assert summary["structured_output_retries"] == 4
 
 
 class TestPrintUsage:

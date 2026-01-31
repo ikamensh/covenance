@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 client1 = Covenance(label="question client")
 
-response = client1.ask_llm("who is David Blayne", model="gpt-5-nano")
+response = client1.ask_llm("who is David Blayne", model="gpt-4.1-nano")
 print(response)
 
 
