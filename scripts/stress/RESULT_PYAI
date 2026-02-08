@@ -1,0 +1,94 @@
+Running 60 tests (12 tests × 5 models)
+Parallelism: 12 workers
+------------------------------------------------------------
+  [1/60] 2%  FAIL  recursive_types     nano      $0.0001
+  [2/60] 3%  PASS  nesting_depth       nano      $0.0001
+  [3/60] 5%  PASS  field_constraints   nano      $0.0001
+  [4/60] 7%  PASS  cross_field_deps    nano      $0.0001
+  [5/60] 8%  PASS  enum_adherence      nano      $0.0001
+  [6/60] 10%  PASS  optional_fields     nano      $0.0002
+  [7/60] 12%  PASS  type_diversity      nano      $0.0001
+  [8/60] 13%  PASS  nesting_depth       mini      $0.0003
+  [9/60] 15%  PASS  edge_values         nano      $0.0002
+  [10/60] 17%  PASS  recursive_types     mini      $0.0003
+  [11/60] 18%  PASS  enum_adherence      mini      $0.0004
+  [12/60] 20%  FAIL  real_schemas        nano      $0.0001
+  [13/60] 22%  PASS  field_width         nano      $0.0003
+  [14/60] 23%  PASS  field_constraints   mini      $0.0003
+  [15/60] 25%  PASS  type_diversity      mini      $0.0004
+  [16/60] 27%  PASS  optional_fields     mini      $0.0004
+  [17/60] 28%  PASS  cross_field_deps    mini      $0.0004
+  [18/60] 30%  PASS  recursive_types     lite      $0.0003
+  [19/60] 32%  PASS  consistency         nano      $0.0002
+  [20/60] 33%  PASS  nesting_depth       lite      $0.0001
+  [21/60] 35%  PASS  edge_values         mini      $0.0005
+  [22/60] 37%  PASS  type_diversity      lite      $0.0001
+  [23/60] 38%  PASS  enum_adherence      lite      $0.0001
+  [24/60] 40%  PASS  optional_fields     lite      $0.0001
+  [25/60] 42%  PASS  field_width         lite      $0.0005
+  [26/60] 43%  PASS  field_constraints   lite      $0.0001
+  [27/60] 45%  PASS  cross_field_deps    lite      $0.0001
+  [28/60] 47%  PASS  field_width         mini      $0.0012
+  [29/60] 48%  PASS  edge_values         lite      $0.0001
+  [30/60] 50%  PASS  nesting_depth       flash     $0.0000
+  [31/60] 52%  PASS  recursive_types     flash     $0.0000
+  [32/60] 53%  PASS  type_diversity      flash     $0.0000
+  [33/60] 55%  PASS  enum_adherence      flash     $0.0000
+  [34/60] 57%  PASS  optional_fields     flash     $0.0000
+  [35/60] 58%  PASS  real_schemas        lite      $0.0005
+  [36/60] 60%  PASS  field_constraints   flash     $0.0000
+  [37/60] 62%  PASS  field_width         flash     $0.0002
+  [38/60] 63%  PASS  real_schemas        mini      $0.0013
+  [39/60] 65%  PASS  cross_field_deps    flash     $0.0000
+  [40/60] 67%  PASS  edge_values         flash     $0.0000
+  [41/60] 68%  PASS  recursive_types     latest    $0.0000
+  [42/60] 70%  PASS  consistency         lite      $0.0002
+  [43/60] 72%  PASS  type_diversity      latest    $0.0000
+  [44/60] 73%  PASS  consistency         mini      $0.0007
+  [45/60] 75%  PASS  real_schemas        flash     $0.0001
+  [46/60] 77%  PASS  enum_adherence      latest    $0.0000
+  [47/60] 78%  PASS  field_constraints   latest    $0.0000
+  [48/60] 80%  PASS  optional_fields     latest    $0.0000
+  [49/60] 82%  PASS  cross_field_deps    latest    $0.0000
+  [50/60] 83%  FAIL  limits              lite      $0.0021
+  [51/60] 85%  FAIL  edge_values         latest    $0.0000
+  [52/60] 87%  PASS  field_width         latest    $0.0000
+  [53/60] 88%  FAIL  nesting_depth       latest    $0.0000
+  [54/60] 90%  PASS  consistency         flash     $0.0001
+  [55/60] 92%  PASS  consistency         latest    $0.0000
+  [56/60] 93%  FAIL  limits              nano      $0.0034
+  [57/60] 95%  PASS  real_schemas        latest    $0.0000
+  [58/60] 97%  FAIL  limits              flash     $0.0004
+  [59/60] 98%  FAIL  limits              mini      $0.0125
+  [60/60] 100%  FAIL  limits              latest    $0.0000
+
+============================================================
+  SUMMARY
+============================================================
+
+Test                    gpt-4.1-na  gpt-4.1-mi  gemini-2.5  gemini-2.0     mistral
+----------------------------------------------------------------------------------
+nesting_depth                 PASS        PASS        PASS        PASS        FAIL
+field_width                   PASS        PASS        PASS        PASS        PASS
+recursive                     FAIL        PASS        PASS        PASS        PASS
+type_diversity                PASS        PASS        PASS        PASS        PASS
+enums                         PASS        PASS        PASS        PASS        PASS
+optionals                     PASS        PASS        PASS        PASS        PASS
+field_constraints             PASS        PASS        PASS        PASS        PASS
+cross_field                   PASS        PASS        PASS        PASS        PASS
+edge_values                   PASS        PASS        PASS        PASS        FAIL
+consistency                   PASS        PASS        PASS        PASS        PASS
+real_schemas                  FAIL        PASS        PASS        PASS        PASS
+limits                        FAIL        FAIL        FAIL        FAIL        FAIL
+----------------------------------------------------------------------------------
+
+Total calls: 256
+Total cost:  $0.0290
+Elapsed:     132.0s
+
+Pass rates:
+  gpt-4.1-nano           9/12
+  gpt-4.1-mini           11/12
+  gemini-2.5-flash-lit   11/12
+  gemini-2.0-flash       11/12
+  mistral-small          9/12
