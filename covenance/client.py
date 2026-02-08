@@ -1,28 +1,23 @@
 """Instance-scoped LLM access with isolated keys and call records.
 
-Uses pydantic-ai as the backend for multi-provider LLM calls.
+Routes to either native SDK clients or pydantic-ai backend based on provider.
 Module-level helpers route through the default instance so legacy API keeps working.
 """
 
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import copy_context
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import httpx
-from httpx import HTTPStatusError
-from pydantic_ai import Agent
-from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_after
-from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt
+from pydantic import TypeAdapter, ValidationError
 
 from ._caller_context import capture_caller_context, get_caller_info
+from .exceptions import StructuredOutputParsingError
 from .keys import (
     get_anthropic_api_key,
     get_gemini_api_key,
@@ -31,62 +26,16 @@ from .keys import (
     get_openai_api_key,
     get_openrouter_api_key,
 )
+from ._pydantic_ai_backend import ask_pydantic_ai
 from .record import Record, RecordStore, TokenUsage, get_env_records_dir
-
-
-@dataclass
-class RetryTracker:
-    """Tracks retry attempts and wait times for a single LLM call."""
-
-    retries: int = 0
-    wait_seconds: float = 0.0
-
-    def before_sleep(self, retry_state: RetryCallState) -> None:
-        """Called before sleeping between retries."""
-        wait_time = retry_state.next_action.sleep if retry_state.next_action else 0.0
-        self.wait_seconds += wait_time
-
-    def after_retry(self, retry_state: RetryCallState) -> None:
-        """Called after each retry attempt."""
-        self.retries += 1
-
-
-def _create_retry_http_client(
-    tracker: RetryTracker,
-    max_retries: int = 10,
-    max_wait: float = 300.0,
-    timeout: float = 600.0,
-) -> httpx.AsyncClient:
-    """Create an HTTP client with rate limit retry support.
-
-    Args:
-        tracker: RetryTracker to record retry stats
-        max_retries: Maximum number of retry attempts (default: 10)
-        max_wait: Maximum wait time per retry in seconds (default: 300s / 5min)
-        timeout: HTTP request timeout in seconds (default: 600s / 10min)
-    """
-
-    def validate_response(response: httpx.Response) -> None:
-        """Raise for retryable status codes (429 rate limit, 5xx server errors)."""
-        if response.status_code in (429, 502, 503, 504):
-            response.raise_for_status()
-
-    transport = AsyncTenacityTransport(
-        config=RetryConfig(
-            retry=retry_if_exception_type(HTTPStatusError),
-            wait=wait_retry_after(max_wait=max_wait),
-            stop=stop_after_attempt(max_retries),
-            before_sleep=tracker.before_sleep,
-            after=tracker.after_retry,
-            reraise=True,
-        ),
-        validate_response=validate_response,
-    )
-    return httpx.AsyncClient(transport=transport, timeout=timeout)
-
+from .response_adapter import ResponseTypeAdapter
 
 # Registry of all Covenance clients created in this process
 _all_clients: list[Covenance] = []
+
+# Providers that use native SDK backend (better for Responses API / schema limits)
+# All other providers use pydantic-ai backend
+_NATIVE_BACKEND_PROVIDERS = {"openai", "grok"}
 
 
 def _normalize_model(model: str | object) -> str:
@@ -94,29 +43,6 @@ def _normalize_model(model: str | object) -> str:
     if hasattr(model, "value"):  # Enum
         return str(model.value)
     return str(model)
-
-
-def _get_pydantic_ai_model(model: str, provider: str) -> str:
-    """Convert covenance model name to pydantic-ai model spec.
-
-    pydantic-ai uses format 'provider:model_name', e.g.:
-    - openai:gpt-4
-    - anthropic:claude-3-opus
-    - google-gla:gemini-2.5-flash
-    - mistral:mistral-small-latest
-    - xai:grok-2
-    - openrouter:provider/model
-    """
-    provider_map = {
-        "openai": "openai",
-        "anthropic": "anthropic",
-        "gemini": "google-gla",
-        "mistral": "mistral",
-        "grok": "xai",
-        "openrouter": "openrouter",
-    }
-    pydantic_provider = provider_map.get(provider, provider)
-    return f"{pydantic_provider}:{model}"
 
 
 def _get_provider(model: str) -> str:
@@ -162,10 +88,25 @@ class Covenance:
         self._openrouter_api_key = openrouter_api_key
         self._grok_api_key = grok_api_key
         self._record_store = RecordStore(records_dir=records_dir, label=label)
+
+        # Lazy-initialized native clients (only created if needed)
+        self._native_clients: dict[str, Any] | None = None
+
         _all_clients.append(self)
 
     def get_record_store(self) -> RecordStore:
         return self._record_store
+
+    def _get_key_overrides(self) -> dict[str, str | None]:
+        """Return dict of API key overrides for backends."""
+        return {
+            "openai": self._openai_api_key,
+            "anthropic": self._anthropic_api_key,
+            "mistral": self._mistral_api_key,
+            "gemini": self._gemini_api_key,
+            "openrouter": self._openrouter_api_key,
+            "grok": self._grok_api_key,
+        }
 
     def _get_api_key(self, provider: str) -> str | None:
         """Get API key for provider (explicit override or from env)."""
@@ -182,85 +123,130 @@ class Covenance:
             return override or getter()
         return None
 
-    def _create_model_with_retry(
-        self, model_name: str, provider: str, tracker: RetryTracker
-    ) -> Any:
-        """Create a pydantic-ai model with retry-enabled HTTP client.
+    def _get_native_client(self, provider: str) -> Any | None:
+        """Get or create native SDK client for provider."""
+        from ._lazy_client import LazyClient
+        from .keys import require_api_key
 
-        Returns a model object suitable for Agent(), with automatic rate limit retries.
-        """
-        api_key = self._get_api_key(provider)
-        http_client = _create_retry_http_client(tracker)
+        if self._native_clients is None:
+            self._native_clients = {}
 
+        if provider in self._native_clients:
+            return self._native_clients[provider]
+
+        # Create client based on provider
         if provider == "openai":
-            from pydantic_ai.models.openai import OpenAIChatModel
-            from pydantic_ai.providers.openai import OpenAIProvider
+            from openai import OpenAI
 
-            return OpenAIChatModel(
-                model_name,
-                provider=OpenAIProvider(api_key=api_key, http_client=http_client),
-            )
-
-        elif provider == "anthropic":
-            from anthropic import AsyncAnthropic
-            from pydantic_ai.models.anthropic import AnthropicModel
-            from pydantic_ai.providers.anthropic import AnthropicProvider
-
-            anthropic_client = AsyncAnthropic(api_key=api_key, http_client=http_client)
-            return AnthropicModel(
-                model_name,
-                provider=AnthropicProvider(anthropic_client=anthropic_client),
-            )
-
-        elif provider == "gemini":
-            from pydantic_ai.models.google import GoogleModel
-            from pydantic_ai.providers.google import GoogleProvider
-
-            return GoogleModel(
-                model_name,
-                provider=GoogleProvider(api_key=api_key, http_client=http_client),
-            )
-
-        elif provider == "mistral":
-            from mistralai import Mistral
-            from pydantic_ai.models.mistral import MistralModel
-            from pydantic_ai.providers.mistral import MistralProvider
-
-            mistral_client = Mistral(api_key=api_key, async_client=http_client)
-            return MistralModel(
-                model_name, provider=MistralProvider(mistral_client=mistral_client)
-            )
-
+            api_key = require_api_key(self._get_api_key("openai"), "openai")
+            client = LazyClient(lambda: OpenAI(api_key=api_key), label="openai")
         elif provider == "grok":
-            # xAI native SDK doesn't support custom http_client, use OpenAI-compatible
-            from pydantic_ai.models.openai import OpenAIChatModel
-            from pydantic_ai.providers.openai import OpenAIProvider
+            from openai import OpenAI
 
-            grok_key = api_key or os.environ.get("XAI_API_KEY")
-            return OpenAIChatModel(
-                model_name,
-                provider=OpenAIProvider(
-                    api_key=grok_key,
-                    base_url="https://api.x.ai/v1",
-                    http_client=http_client,
-                ),
+            from .clients.grok_client import GROK_BASE_URL
+
+            api_key = require_api_key(self._get_api_key("grok"), "grok")
+            client = LazyClient(
+                lambda: OpenAI(api_key=api_key, base_url=GROK_BASE_URL), label="grok"
             )
-
-        elif provider == "openrouter":
-            from pydantic_ai.models.openai import OpenAIChatModel
-            from pydantic_ai.providers.openai import OpenAIProvider
-
-            return OpenAIChatModel(
-                model_name,
-                provider=OpenAIProvider(
-                    api_key=api_key,
-                    base_url="https://openrouter.ai/api/v1",
-                    http_client=http_client,
-                ),
-            )
-
         else:
-            raise ValueError(f"Unknown provider: {provider}")
+            return None
+
+        self._native_clients[provider] = client
+        return client
+
+    def _ask_native[T](
+        self,
+        user_msg: str,
+        model: str,
+        provider: str,
+        response_type: type[T] | None,
+        sys_msg: str | None,
+        max_parsing_retries: int,
+        temperature: float | None,
+    ) -> Any:
+        """Call native SDK backend. Returns BackendResult."""
+        from ._backend_result import BackendResult
+
+        client = self._get_native_client(provider)
+
+        # Import the appropriate provider function
+        if provider == "openai":
+            from .clients.openai_client import ask_openai_compatible_structured
+        elif provider == "grok":
+            from .clients.openai_client import ask_openai_compatible_structured
+        else:
+            raise ValueError(f"No native backend for provider: {provider}")
+
+        # Adapt response_type for LLM API
+        adapter = ResponseTypeAdapter(response_type)
+        llm_type = adapter.get_llm_type()
+
+        # Accumulate data across retries
+        total_tpm_retries = 0
+        total_tpm_wait = 0.0
+        structured_output_retries = 0
+        accumulated_input = 0
+        accumulated_output = 0
+
+        max_attempts = max_parsing_retries + 1
+
+        for attempt in range(max_attempts):
+            try:
+                raw_result = ask_openai_compatible_structured(
+                    client=client,
+                    user_msg=user_msg,
+                    response_type=llm_type,
+                    sys_msg=sys_msg,
+                    model=model,
+                    provider=provider,
+                    temperature=temperature,
+                )
+
+                # Accumulate TPM retry info
+                total_tpm_retries += raw_result.tpm_retries
+                total_tpm_wait += raw_result.tpm_wait_seconds
+
+                result = raw_result.output
+
+                if llm_type not in (None, str):
+                    try:
+                        result = TypeAdapter(llm_type).validate_python(result)
+                    except ValidationError as exc:
+                        raise StructuredOutputParsingError(
+                            "Structured LLM output did not match expected schema.",
+                            usage=raw_result.usage,
+                        ) from exc
+
+                # Calculate consolidated usage
+                final_usage = raw_result.usage
+                total_input = final_usage.prompt_tokens + accumulated_input
+                total_output = final_usage.completion_tokens + accumulated_output
+
+                consolidated_usage = TokenUsage(
+                    prompt_tokens=total_input,
+                    completion_tokens=total_output,
+                    total_tokens=total_input + total_output,
+                    cached_tokens=final_usage.cached_tokens,
+                )
+
+                return BackendResult(
+                    output=adapter.unwrap(result),
+                    usage=consolidated_usage,
+                    tpm_retries=total_tpm_retries,
+                    tpm_wait_seconds=total_tpm_wait,
+                    structured_output_retries=structured_output_retries,
+                )
+
+            except StructuredOutputParsingError as e:
+                if e.usage is not None:
+                    accumulated_input += e.usage.prompt_tokens
+                    accumulated_output += e.usage.completion_tokens
+                structured_output_retries += 1
+                if attempt == max_attempts - 1:
+                    raise
+
+        raise RuntimeError("_ask_native exhausted retry loop")
 
     def ask_llm[T](
         self,
@@ -272,7 +258,7 @@ class Covenance:
         max_parsing_retries: int = 2,
         temperature: float | None = None,
     ) -> T:
-        """Route to pydantic-ai Agent and make LLM call.
+        """Route to appropriate backend and make LLM call.
 
         Args:
             user_msg: User message/prompt
@@ -285,77 +271,53 @@ class Covenance:
             max_parsing_retries: Retries for structured output parsing errors
             temperature: Sampling temperature
         """
-        from .response_adapter import ResponseTypeAdapter
-
         # Normalize model (handle enums)
         model = _normalize_model(model)
         provider = _get_provider(model)
 
-        # Create retry tracker and model with retry-enabled HTTP client
-        tracker = RetryTracker()
-        pydantic_model = self._create_model_with_retry(model, provider, tracker)
-
-        # Adapt response_type for LLM API (wrap if needed)
-        adapter = ResponseTypeAdapter(response_type)
-        llm_type = adapter.get_llm_type()
-
         started_at = datetime.now(UTC)
 
-        # Determine output_type for pydantic-ai
-        is_plain_text = llm_type is None or llm_type is str
-
-        # Build model settings
-        model_settings: dict[str, Any] = {}
-        if temperature is not None:
-            model_settings["temperature"] = temperature
-
-        # Create agent - don't pass output_type if plain text
-        agent_kwargs: dict[str, Any] = {
-            "instructions": sys_msg,
-            "retries": max_parsing_retries,
-        }
-        if not is_plain_text:
-            agent_kwargs["output_type"] = llm_type
-
-        agent = Agent(pydantic_model, **agent_kwargs)
-        result = agent.run_sync(user_msg, model_settings=model_settings)
+        # Route to appropriate backend
+        if provider in _NATIVE_BACKEND_PROVIDERS:
+            backend_result = self._ask_native(
+                user_msg=user_msg,
+                model=model,
+                provider=provider,
+                response_type=response_type,
+                sys_msg=sys_msg,
+                max_parsing_retries=max_parsing_retries,
+                temperature=temperature,
+            )
+        else:
+            backend_result = ask_pydantic_ai(
+                user_msg=user_msg,
+                model=model,
+                response_type=response_type,
+                sys_msg=sys_msg,
+                max_parsing_retries=max_parsing_retries,
+                temperature=temperature,
+                key_overrides=self._get_key_overrides(),
+            )
 
         ended_at = datetime.now(UTC)
 
-        # Extract usage from pydantic-ai result
-        usage = result.usage()
-        token_usage = TokenUsage(
-            prompt_tokens=usage.input_tokens,
-            completion_tokens=usage.output_tokens,
-            total_tokens=usage.total_tokens,
-            cached_tokens=usage.cache_read_tokens,
-        )
-
-        # Extract structured output retries from pydantic-ai internal state
-        # Note: _state is private but the only way to access retry count
-        structured_retries = getattr(result, "_state", None)
-        structured_retries = (
-            getattr(structured_retries, "retries", 0) if structured_retries else 0
-        )
-
-        # Record the call with retry stats
+        # Record the call
         caller_function, caller_file, caller_line = get_caller_info()
         self._record_store.record_llm_call(
             model=model,
             provider=provider,
-            usage=token_usage,
+            usage=backend_result.usage,
             started_at=started_at,
             ended_at=ended_at,
-            tpm_retries=tracker.retries,
-            tpm_retry_wait_seconds=tracker.wait_seconds,
-            structured_output_retries=structured_retries,
+            tpm_retries=backend_result.tpm_retries,
+            tpm_retry_wait_seconds=backend_result.tpm_wait_seconds,
+            structured_output_retries=backend_result.structured_output_retries,
             caller_function=caller_function,
             caller_file=caller_file,
             caller_line=caller_line,
         )
 
-        # Unwrap result if needed
-        return adapter.unwrap(result.output) if not is_plain_text else result.output
+        return backend_result.output
 
     def llm_consensus[T](
         self,
