@@ -1,7 +1,7 @@
-from enum import Enum
+from enum import StrEnum
 
 
-class OpenRouterModels(str, Enum):
+class OpenRouterModels(StrEnum):
     """OpenRouter model identifiers.
 
     OpenRouter provides access to models from multiple providers.

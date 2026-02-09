@@ -24,10 +24,7 @@ class StressTestResult:
 def safe_call(
     client: Covenance, call_fn: Callable, timeout_seconds: int = 60
 ) -> tuple[Any, str | None]:
-    """Execute a call with timeout, returning (result, error_message).
-
-    Uses ThreadPoolExecutor for thread-safe timeout (works in any context).
-    """
+    """Execute a call with timeout, returning (result, error_message)."""
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(call_fn)
         try:
@@ -36,7 +33,7 @@ def safe_call(
         except FuturesTimeoutError:
             return None, f"Timeout after {timeout_seconds}s"
         except Exception as e:
-            return None, f"{type(e).__name__}: {str(e)[:100]}"
+            return None, f"{type(e).__name__}: {str(e)[:200]}"
 
 
 def run_test_cases(
@@ -45,16 +42,7 @@ def run_test_cases(
     cases: list[tuple[str, Callable, Callable[[Any], tuple[bool, str]]]],
     timeout_seconds: int = 30,
 ) -> StressTestResult:
-    """Run multiple test cases and aggregate results.
-
-    Args:
-        client: Covenance client instance
-        test_name: Name of this stress test
-        cases: List of (case_name, call_fn, validator_fn) tuples
-            - call_fn: () -> result
-            - validator_fn: (result) -> (passed, failure_reason)
-        timeout_seconds: Max seconds per call
-    """
+    """Run multiple test cases and aggregate results."""
     failures = []
     details = {}
 
@@ -88,12 +76,22 @@ def run_test_cases(
     )
 
 
+def make_client(model: str, backend: str | None = None) -> Covenance:
+    """Create a Covenance client with optional backend forcing."""
+    label_parts = ["stress"]
+    if backend:
+        label_parts.append(backend)
+    client = Covenance(label="_".join(label_parts))
+    if backend:
+        client.backends.set_all(backend)
+    return client
+
+
 # Cheap models for stress testing
 CHEAP_MODELS = {
     "openai": ["gpt-4.1-nano", "gpt-4.1-mini"],
     "google": ["gemini-2.5-flash-lite", "gemini-2.0-flash"],
     "mistral": ["mistral-small-latest"],
-    # Anthropic is expensive, skip by default
 }
 
 DEFAULT_MODEL = "gpt-4.1-nano"

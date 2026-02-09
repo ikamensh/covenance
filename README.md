@@ -194,3 +194,78 @@ eval = review_client.llm_consensus(
 question_client.print_usage()  # Shows only the question call
 review_client.print_usage()    # Shows only the review call
 ```
+
+## How it works: dual backend
+
+Covenance uses two backends for structured output and picks the better one per provider:
+
+- **Native SDK** — calls the provider's API directly (e.g., OpenAI [Responses API](https://platform.openai.com/docs/api-reference/responses) with `responses.parse`)
+- **pydantic-ai** — uses [pydantic-ai](https://github.com/pydantic/pydantic-ai) as a unified layer
+
+The default routing:
+
+| Provider | Backend | Why |
+|----------|---------|-----|
+| OpenAI | Native | Responses API with constrained decoding handles enums, recursive types, and large schemas more reliably |
+| Grok | Native | OpenAI-compatible API, same benefits |
+| Gemini | pydantic-ai | Native SDK hits `RecursionError` on self-referencing types (e.g., tree nodes) |
+| Anthropic | pydantic-ai | No native client implemented |
+| Mistral | pydantic-ai | Similar pass rates; pydantic-ai handles recursive types better |
+| OpenRouter | pydantic-ai | No native client implemented |
+
+These defaults are based on a [stress test suite](scripts/stress/) that runs 14 test categories across providers with both backends. The results for the cheapest model per provider:
+
+```
+OpenAI  (gpt-4.1-nano):          native 14/14, pydantic-ai 10/14
+Gemini  (gemini-2.5-flash-lite): native 11/14, pydantic-ai 13/14
+Mistral (mistral-small-latest):  native  9/14, pydantic-ai  8/14
+```
+
+Where native beats pydantic-ai on OpenAI: enum adherence (strict values vs. hallucinated ones), recursive types (deeper trees), real-world schemas (fewer empty fields), and extreme schema limits (100+ fields with Literal types).
+
+Where pydantic-ai beats native on Gemini: recursive/self-referencing types (native Google SDK crashes with `RecursionError`).
+
+### Overriding the backend
+
+Each `Covenance` instance has a `backends` object with a field per provider. You can inspect and override them:
+
+```python
+from covenance import Covenance
+
+client = Covenance()
+print(client.backends)
+# Backends(native=[openai, grok], pydantic=[gemini, anthropic, mistral, openrouter])
+
+# Override a specific provider
+client.backends.anthropic = "native"
+
+# Force all providers to one backend (useful for benchmarking)
+client.backends.set_all("native")
+```
+
+Only `"native"` and `"pydantic"` are accepted — anything else raises `ValueError`.
+
+Every call records which backend was used:
+
+```python
+for record in client.get_records():
+    print(f"{record.model}: {record.backend}")  # "native" or "pydantic"
+```
+
+The backend also shows in `print_call_timeline()` as `(N)` or `(P)`:
+
+```python
+print_call_timeline()
+# LLM Call Timeline (2.1s total, 2 calls)
+#                            |0s                                       2.1s|
+#   gpt-4.1-nano(N)    0.8s  |█████████████████                            |
+#   g2.5-flash-l(P)    1.1s  |                  ██████████████████████████  |
+```
+
+To see routing decisions in real time, enable debug logging:
+
+```python
+import logging
+logging.basicConfig(level=logging.DEBUG)
+# DEBUG:covenance:ask_llm: model=gpt-4.1-nano provider=openai backend=native
+```

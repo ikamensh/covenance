@@ -17,6 +17,7 @@ from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_
 from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt
 
 from ._backend_result import BackendResult
+from ._routing import get_provider
 from .keys import (
     get_anthropic_api_key,
     get_gemini_api_key,
@@ -71,22 +72,6 @@ def _create_retry_http_client(
         validate_response=validate_response,
     )
     return httpx.AsyncClient(transport=transport, timeout=timeout)
-
-
-def _get_provider(model: str) -> str:
-    """Determine provider from model name."""
-    if model.startswith("gemini"):
-        return "gemini"
-    elif model.startswith(("mistral", "ministral", "codestral")):
-        return "mistral"
-    elif model.startswith("claude"):
-        return "anthropic"
-    elif model.startswith("grok"):
-        return "grok"
-    elif "/" in model:
-        return "openrouter"
-    else:
-        return "openai"
 
 
 def _get_api_key(provider: str, key_overrides: dict[str, str | None]) -> str | None:
@@ -198,7 +183,7 @@ def ask_pydantic_ai[T](
     key_overrides: dict[str, str | None] | None = None,
 ) -> BackendResult:
     """Make LLM call using pydantic-ai backend. Returns BackendResult."""
-    provider = _get_provider(model)
+    provider = get_provider(model)
     key_overrides = key_overrides or {}
 
     # Create retry tracker and model with retry-enabled HTTP client

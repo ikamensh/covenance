@@ -1,9 +1,7 @@
 """Stress test: real-world complex schemas."""
 
 from pydantic import BaseModel
-from stress_utils import DEFAULT_MODEL, StressTestResult, run_test_cases
-
-from covenance import Covenance
+from stress_utils import DEFAULT_MODEL, StressTestResult, make_client, run_test_cases
 
 
 # API Response shape
@@ -164,9 +162,11 @@ def validate_document(result: Document) -> tuple[bool, str]:
     return True, ""
 
 
-def run_stress_test(model: str = DEFAULT_MODEL) -> StressTestResult:
+def run_stress_test(
+    model: str = DEFAULT_MODEL, backend: str | None = None
+) -> StressTestResult:
     """Test real-world complex schemas."""
-    client = Covenance(label="stress_real")
+    client = make_client(model, backend)
 
     cases = [
         (

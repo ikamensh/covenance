@@ -1,9 +1,7 @@
 """Stress test: cross-field dependency constraints."""
 
 from pydantic import BaseModel, Field
-from stress_utils import DEFAULT_MODEL, StressTestResult, run_test_cases
-
-from covenance import Covenance
+from stress_utils import DEFAULT_MODEL, StressTestResult, make_client, run_test_cases
 
 
 class DateRange(BaseModel):
@@ -137,9 +135,11 @@ def validate_coordinates(result: Coordinates) -> tuple[bool, str]:
     return True, ""
 
 
-def run_stress_test(model: str = DEFAULT_MODEL) -> StressTestResult:
+def run_stress_test(
+    model: str = DEFAULT_MODEL, backend: str | None = None
+) -> StressTestResult:
     """Test cross-field dependency constraints."""
-    client = Covenance(label="stress_crossfield")
+    client = make_client(model, backend)
 
     cases = [
         (

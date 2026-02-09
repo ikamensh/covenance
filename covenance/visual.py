@@ -111,7 +111,7 @@ def print_call_timeline(
     right_label = total_dur_str
     axis_content_width = width - len(left_label) - len(right_label)
     axis_line = (
-        f"  {'':13} {'':>6}  |{left_label}{' ' * axis_content_width}{right_label}|"
+        f"  {'':16} {'':>6}  |{left_label}{' ' * axis_content_width}{right_label}|"
     )
     print(axis_line)
 
@@ -127,13 +127,18 @@ def print_call_timeline(
         # Build bar: spaces before, blocks during, spaces after
         bar = " " * start_col + "█" * (end_col - start_col) + " " * (width - end_col)
 
-        # Format model name
-        model = _shorten_model_name(record.model).ljust(13)
+        # Format model name with optional backend tag
+        model_label = _shorten_model_name(record.model)
+        if record.backend:
+            # Short tag: N=native, P=pydantic
+            tag = "N" if record.backend == "native" else "P"
+            model_label = f"{model_label}({tag})"
+        model_label = model_label.ljust(16)
 
         # Format duration
         dur_str = _format_duration(record.duration_seconds).rjust(6)
 
-        print(f"  {model} {dur_str}  |{bar}|")
+        print(f"  {model_label} {dur_str}  |{bar}|")
 
 
 def _format_duration(seconds: float) -> str:

@@ -1,9 +1,7 @@
 """Stress test: deeply nested type structures."""
 
 from pydantic import BaseModel
-from stress_utils import DEFAULT_MODEL, StressTestResult, run_test_cases
-
-from covenance import Covenance
+from stress_utils import DEFAULT_MODEL, StressTestResult, make_client, run_test_cases
 
 
 # Build nested models dynamically
@@ -107,9 +105,11 @@ def validate_depth_8(result: D1) -> tuple[bool, str]:
         return False, f"Missing nested field: {e}"
 
 
-def run_stress_test(model: str = DEFAULT_MODEL) -> StressTestResult:
+def run_stress_test(
+    model: str = DEFAULT_MODEL, backend: str | None = None
+) -> StressTestResult:
     """Test deeply nested structures."""
-    client = Covenance(label="stress_nesting")
+    client = make_client(model, backend)
 
     cases = [
         (

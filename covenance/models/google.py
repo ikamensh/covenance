@@ -1,9 +1,9 @@
-from enum import Enum
+from enum import StrEnum
 
 from covenance.pricing import ModelPricing
 
 
-class GeminiModels(str, Enum):
+class GeminiModels(StrEnum):
     # Gemini 3 preview
     pro_3 = "gemini-3-pro-preview"
     flash_3 = "gemini-3-flash-preview"

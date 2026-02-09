@@ -41,9 +41,11 @@ class TestRequireProvider:
                 # We need to actually make import raise
                 with patch(
                     "builtins.__import__",
-                    side_effect=lambda name, *args: (_ for _ in ()).throw(ImportError())
-                    if name == "openai"
-                    else __builtins__.__dict__["__import__"](name, *args),
+                    side_effect=lambda name, *args: (
+                        (_ for _ in ()).throw(ImportError())
+                        if name == "openai"
+                        else __builtins__.__dict__["__import__"](name, *args)
+                    ),
                 ):
                     with pytest.raises(MissingProviderError) as exc_info:
                         require_provider("openai")
@@ -57,9 +59,11 @@ class TestRequireProvider:
         # Test with a mock import failure
         with patch(
             "builtins.__import__",
-            side_effect=lambda name, *args: (_ for _ in ()).throw(ImportError())
-            if name == "anthropic"
-            else __builtins__.__dict__["__import__"](name, *args),
+            side_effect=lambda name, *args: (
+                (_ for _ in ()).throw(ImportError())
+                if name == "anthropic"
+                else __builtins__.__dict__["__import__"](name, *args)
+            ),
         ):
             with pytest.raises(MissingProviderError) as exc_info:
                 require_provider("anthropic")

@@ -8,13 +8,11 @@ Known limitations discovered:
 - Mistral/OpenAI: Handle 150+ Literal fields fine
 """
 
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, create_model
-from stress_utils import DEFAULT_MODEL, StressTestResult, safe_call
-
-from covenance import Covenance
+from stress_utils import DEFAULT_MODEL, StressTestResult, make_client, safe_call
 
 # Large Literal type (20 values)
 StatusLiteral = Literal[
@@ -42,7 +40,7 @@ StatusLiteral = Literal[
 
 
 # Large Enum (20 values)
-class StatusEnum(str, Enum):
+class StatusEnum(StrEnum):
     PENDING = "pending"
     ACTIVE = "active"
     INACTIVE = "inactive"
@@ -177,9 +175,11 @@ _big_literal_fields = {f"f{i}": (BigLiteral, ...) for i in range(20)}
 ManyValues50 = create_model("ManyValues50", **_big_literal_fields)
 
 
-def run_stress_test(model: str = DEFAULT_MODEL) -> StressTestResult:
+def run_stress_test(
+    model: str = DEFAULT_MODEL, backend: str | None = None
+) -> StressTestResult:
     """Find breaking points with extreme schemas."""
-    client = Covenance(label="stress_limits")
+    client = make_client(model, backend)
     failures = []
     details = {}
 

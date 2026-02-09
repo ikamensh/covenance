@@ -1,9 +1,9 @@
-from enum import Enum
+from enum import StrEnum
 
 from covenance.pricing import ModelPricing
 
 
-class GrokModels(str, Enum):
+class GrokModels(StrEnum):
     """xAI Grok model identifiers.
 
     Note: xAI uses dashes not dots in model names (grok-4-1-fast, not grok-4.1-fast).

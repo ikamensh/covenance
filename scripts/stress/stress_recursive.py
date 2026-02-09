@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from pydantic import BaseModel
-from stress_utils import DEFAULT_MODEL, StressTestResult, run_test_cases
-
-from covenance import Covenance
+from stress_utils import DEFAULT_MODEL, StressTestResult, make_client, run_test_cases
 
 
 class TreeNode(BaseModel):
@@ -71,9 +69,11 @@ def validate_linked_list(result: LinkedItem, min_length: int) -> tuple[bool, str
     return True, ""
 
 
-def run_stress_test(model: str = DEFAULT_MODEL) -> StressTestResult:
+def run_stress_test(
+    model: str = DEFAULT_MODEL, backend: str | None = None
+) -> StressTestResult:
     """Test recursive type structures."""
-    client = Covenance(label="stress_recursive")
+    client = make_client(model, backend)
 
     cases = [
         (

@@ -1,9 +1,7 @@
 """Stress test: edge case values."""
 
 from pydantic import BaseModel, Field
-from stress_utils import DEFAULT_MODEL, StressTestResult, run_test_cases
-
-from covenance import Covenance
+from stress_utils import DEFAULT_MODEL, StressTestResult, make_client, run_test_cases
 
 
 class EdgeNumbers(BaseModel):
@@ -116,9 +114,11 @@ def validate_mixed_edges(result: MixedEdges) -> tuple[bool, str]:
     return True, ""
 
 
-def run_stress_test(model: str = DEFAULT_MODEL) -> StressTestResult:
+def run_stress_test(
+    model: str = DEFAULT_MODEL, backend: str | None = None
+) -> StressTestResult:
     """Test edge case value handling."""
-    client = Covenance(label="stress_edges")
+    client = make_client(model, backend)
 
     cases = [
         (

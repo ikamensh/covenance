@@ -9,7 +9,7 @@ Tests internal behavior by mocking backend calls:
 These tests depend on internal implementation details.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from pydantic import BaseModel

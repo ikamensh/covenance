@@ -1,9 +1,7 @@
 """Stress test: optional field handling."""
 
 from pydantic import BaseModel
-from stress_utils import DEFAULT_MODEL, StressTestResult, run_test_cases
-
-from covenance import Covenance
+from stress_utils import DEFAULT_MODEL, StressTestResult, make_client, run_test_cases
 
 
 class ProfileWithOptionals(BaseModel):
@@ -72,9 +70,11 @@ def validate_specific_optionals(
     return True, ""
 
 
-def run_stress_test(model: str = DEFAULT_MODEL) -> StressTestResult:
+def run_stress_test(
+    model: str = DEFAULT_MODEL, backend: str | None = None
+) -> StressTestResult:
     """Test optional field handling."""
-    client = Covenance(label="stress_optionals")
+    client = make_client(model, backend)
 
     cases = [
         (

@@ -39,7 +39,6 @@ def test_set_rate_limiter_verbose():
 
 
 @patch("covenance.clients.mistral_client.client")
-
 @patch("covenance.clients.mistral_client.time.sleep", autospec=True)
 def test_ask_mistral_plain_text(mock_sleep, mock_client):
     """Property test: plain text requests return string."""
@@ -66,7 +65,6 @@ def test_ask_mistral_plain_text(mock_sleep, mock_client):
 
 
 @patch("covenance.clients.mistral_client.client")
-
 @patch("covenance.clients.mistral_client.time.sleep", autospec=True)
 def test_ask_mistral_structured_output(mock_sleep, mock_client):
     """Property test: structured output requests return Pydantic model."""
@@ -97,7 +95,6 @@ def test_ask_mistral_structured_output(mock_sleep, mock_client):
 
 
 @patch("covenance.clients.mistral_client.client")
-
 @patch("covenance.clients.mistral_client.time.sleep", autospec=True)
 def test_ask_mistral_with_system_message(mock_sleep, mock_client):
     """Property test: system message is included in messages array."""
@@ -128,7 +125,6 @@ def test_ask_mistral_with_system_message(mock_sleep, mock_client):
 
 
 @patch("covenance.clients.mistral_client.client")
-
 @patch("covenance.clients.mistral_client.time.sleep", autospec=True)
 def test_ask_mistral_retries_on_rate_limit(mock_sleep, mock_client):
     """Property test: retries on rate limit errors."""
@@ -164,7 +160,6 @@ def test_ask_mistral_retries_on_rate_limit(mock_sleep, mock_client):
 
 
 @patch("covenance.clients.mistral_client.client")
-
 @patch("covenance.clients.mistral_client.time.sleep", autospec=True)
 def test_ask_mistral_raises_after_max_retries(mock_sleep, mock_client):
     """Property test: raises exception after max retries."""
@@ -185,7 +180,6 @@ def test_ask_mistral_raises_after_max_retries(mock_sleep, mock_client):
 
 
 @patch("covenance.clients.mistral_client.client")
-
 @patch("covenance.clients.mistral_client.time.sleep", autospec=True)
 def test_ask_mistral_empty_content_raises(mock_sleep, mock_client):
     """Property test: None content raises StructuredOutputParsingError."""
@@ -206,7 +200,6 @@ def test_ask_mistral_empty_content_raises(mock_sleep, mock_client):
 
 
 @patch("covenance.clients.mistral_client.client")
-
 @patch("covenance.clients.mistral_client.time.sleep", autospec=True)
 def test_ask_mistral_missing_parsed_raises(mock_sleep, mock_client):
     """Property test: missing parsed field raises StructuredOutputParsingError."""
@@ -230,11 +223,8 @@ def test_ask_mistral_missing_parsed_raises(mock_sleep, mock_client):
 
 
 @patch("covenance.clients.mistral_client.client")
-
 @patch("covenance.clients.mistral_client.time.sleep", autospec=True)
-def test_ask_mistral_non_rate_limit_error_raises_immediately(
-    mock_sleep, mock_client
-):
+def test_ask_mistral_non_rate_limit_error_raises_immediately(mock_sleep, mock_client):
     """Property test: non-rate-limit errors raise immediately."""
     # Create a mock HTTPValidationError
     validation_error = MagicMock(spec=HTTPValidationError)
@@ -250,7 +240,6 @@ def test_ask_mistral_non_rate_limit_error_raises_immediately(
 
 
 @patch("covenance.clients.mistral_client.client")
-
 @patch("covenance.clients.mistral_client.time.sleep", autospec=True)
 def test_ask_mistral_rate_limit_by_status_code(mock_sleep, mock_client):
     """Property test: detects rate limit by status_code attribute."""
@@ -307,7 +296,6 @@ def test_extract_mistral_usage_missing_usage_raises():
 
 
 @patch("covenance.clients.mistral_client.client")
-
 @patch("covenance.clients.mistral_client.time.sleep", autospec=True)
 def test_ask_mistral_with_client_override(mock_sleep, mock_client):
     """Property test: client_override parameter uses provided client."""

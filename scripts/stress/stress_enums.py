@@ -1,14 +1,12 @@
 """Stress test: enum value adherence."""
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel
-from stress_utils import DEFAULT_MODEL, StressTestResult, run_test_cases
-
-from covenance import Covenance
+from stress_utils import DEFAULT_MODEL, StressTestResult, make_client, run_test_cases
 
 
-class Priority(str, Enum):
+class Priority(StrEnum):
     """Uncommon enum values to test adherence."""
 
     URGENT_ALPHA = "urgent_alpha"
@@ -16,7 +14,7 @@ class Priority(str, Enum):
     DEFERRED_GAMMA = "deferred_gamma"
 
 
-class StatusCode(str, Enum):
+class StatusCode(StrEnum):
     """Status codes that look like they could be anything."""
 
     X7_PENDING = "X7_PENDING"
@@ -69,9 +67,11 @@ def validate_specific_enum(
     return True, ""
 
 
-def run_stress_test(model: str = DEFAULT_MODEL) -> StressTestResult:
+def run_stress_test(
+    model: str = DEFAULT_MODEL, backend: str | None = None
+) -> StressTestResult:
     """Test enum value adherence."""
-    client = Covenance(label="stress_enums")
+    client = make_client(model, backend)
 
     cases = [
         (

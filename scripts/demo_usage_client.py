@@ -1,9 +1,14 @@
 from covenance.models import GeminiModels
-from covenance import Covenance
+from covenance import Covenance, print_usage, print_call_timeline
+from covenance.client import _default_client
 from pydantic import BaseModel
+
+print(_default_client.backends)
 
 
 client1 = Covenance(label="question client")
+print(client1.backends)
+
 
 response = client1.ask_llm("who is David Blayne", model="gpt-4.1-nano")
 print(response)
@@ -29,6 +34,4 @@ print(eval.model_dump_json(indent=4))
 
 client1.print_usage()
 client2.print_usage()
-
-# from covenance import Covenance()
-
+client2.print_call_timeline()

@@ -78,7 +78,6 @@ def test_set_rate_limiter_verbose():
 
 
 @patch("covenance.clients.anthropic_client.client")
-
 @patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
 def test_ask_anthropic_plain_text(mock_sleep, mock_client):
     """Property test: plain text requests return string."""
@@ -102,7 +101,6 @@ def test_ask_anthropic_plain_text(mock_sleep, mock_client):
     not _USE_STRUCTURED_OUTPUTS_BETA, reason="Requires SDK >= 0.74.1 for beta API"
 )
 @patch("covenance.clients.anthropic_client.client")
-
 @patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
 def test_ask_anthropic_structured_output(mock_sleep, mock_client):
     """Property test: structured output requests return Pydantic model via beta API."""
@@ -125,7 +123,6 @@ def test_ask_anthropic_structured_output(mock_sleep, mock_client):
 
 
 @patch("covenance.clients.anthropic_client.client")
-
 @patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
 def test_ask_anthropic_with_system_message(mock_sleep, mock_client):
     """Property test: system message is included in API call."""
@@ -145,7 +142,6 @@ def test_ask_anthropic_with_system_message(mock_sleep, mock_client):
 
 
 @patch("covenance.clients.anthropic_client.client")
-
 @patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
 def test_ask_anthropic_retries_on_rate_limit(mock_sleep, mock_client):
     """Property test: retries on rate limit errors."""
@@ -173,7 +169,6 @@ def test_ask_anthropic_retries_on_rate_limit(mock_sleep, mock_client):
 
 
 @patch("covenance.clients.anthropic_client.client")
-
 @patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
 def test_ask_anthropic_raises_after_max_retries(mock_sleep, mock_client):
     """Property test: raises exception after max retries."""
@@ -192,7 +187,6 @@ def test_ask_anthropic_raises_after_max_retries(mock_sleep, mock_client):
 
 
 @patch("covenance.clients.anthropic_client.client")
-
 @patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
 def test_ask_anthropic_empty_content_raises(mock_sleep, mock_client):
     """Property test: empty content raises StructuredOutputParsingError."""
@@ -210,7 +204,6 @@ def test_ask_anthropic_empty_content_raises(mock_sleep, mock_client):
     not _USE_STRUCTURED_OUTPUTS_BETA, reason="Requires SDK >= 0.74.1 for beta API"
 )
 @patch("covenance.clients.anthropic_client.client")
-
 @patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
 def test_ask_anthropic_none_parsed_output_raises(mock_sleep, mock_client):
     """Property test: None parsed_output raises StructuredOutputParsingError."""
@@ -228,11 +221,8 @@ def test_ask_anthropic_none_parsed_output_raises(mock_sleep, mock_client):
 
 
 @patch("covenance.clients.anthropic_client.client")
-
 @patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
-def test_ask_anthropic_non_rate_limit_error_raises_immediately(
-    mock_sleep, mock_client
-):
+def test_ask_anthropic_non_rate_limit_error_raises_immediately(mock_sleep, mock_client):
     """Property test: non-rate-limit errors raise immediately."""
     # Create a mock APIError - APIError needs specific constructor args
     # Use MagicMock to simulate the error
@@ -288,7 +278,6 @@ def test_extract_anthropic_usage_missing_usage_raises():
 
 
 @patch("covenance.clients.anthropic_client.client")
-
 @patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
 def test_ask_anthropic_with_client_override(mock_sleep, mock_client):
     """Property test: client_override parameter uses provided client."""
@@ -313,7 +302,6 @@ def test_ask_anthropic_with_client_override(mock_sleep, mock_client):
     reason="Only test tool-use fallback when beta is not available",
 )
 @patch("covenance.clients.anthropic_client.client")
-
 @patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
 def test_ask_anthropic_tool_use_fallback(mock_sleep, mock_client):
     """Property test: structured output uses tool-use when beta is not available."""
@@ -343,7 +331,6 @@ def test_ask_anthropic_tool_use_fallback(mock_sleep, mock_client):
     assert "tools" in call_kwargs
     assert "tool_choice" in call_kwargs
     assert call_kwargs["tool_choice"]["name"] == "SampleResponse"
-    mock_record.assert_called_once()
 
 
 @pytest.mark.skipif(
@@ -351,11 +338,8 @@ def test_ask_anthropic_tool_use_fallback(mock_sleep, mock_client):
     reason="Only test tool-use fallback when beta is not available",
 )
 @patch("covenance.clients.anthropic_client.client")
-
 @patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
-def test_ask_anthropic_tool_use_missing_block_raises(
-    mock_sleep, mock_client
-):
+def test_ask_anthropic_tool_use_missing_block_raises(mock_sleep, mock_client):
     """Property test: missing tool_use block raises StructuredOutputParsingError."""
     # Mock response without tool_use block
     mock_response = MagicMock()
@@ -372,11 +356,8 @@ def test_ask_anthropic_tool_use_missing_block_raises(
 
 
 @patch("covenance.clients.anthropic_client.client")
-
 @patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
-def test_ask_anthropic_retries_on_unexpected_rate_limit_error(
-    mock_sleep, mock_client
-):
+def test_ask_anthropic_retries_on_unexpected_rate_limit_error(mock_sleep, mock_client):
     """Property test: best-effort retry on unexpected Exception with rate limit indicators."""
     mock_response = MagicMock()
     mock_response.content = [MagicMock(text="Success")]
@@ -397,7 +378,6 @@ def test_ask_anthropic_retries_on_unexpected_rate_limit_error(
 
 
 @patch("covenance.clients.anthropic_client.client")
-
 @patch("covenance.clients.anthropic_client.time.sleep", autospec=True)
 def test_ask_anthropic_unexpected_non_rate_limit_error_raises_immediately(
     mock_sleep, mock_client

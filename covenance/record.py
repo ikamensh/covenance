@@ -10,6 +10,8 @@ from threading import Lock
 
 from pydantic import BaseModel
 
+from covenance._routing import Backend
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_RECORDS_FILENAME = "llm_call_records.jsonl"
@@ -25,6 +27,7 @@ class Record(BaseModel):
 
     model: str
     provider: str
+    backend: Backend  # "native" or "pydantic"
     tokens_input: int  # Total input tokens (all attempts)
     tokens_output: int  # Total output tokens (all attempts)
     tokens_cached: int = 0
@@ -84,6 +87,7 @@ class RecordStore:
         *,
         model: str,
         provider: str,
+        backend: Backend,
         usage: TokenUsage,
         started_at: datetime,
         ended_at: datetime,
@@ -108,6 +112,7 @@ class RecordStore:
         record = Record(
             model=model,
             provider=provider,
+            backend=backend,
             tokens_input=usage.prompt_tokens,
             tokens_output=usage.completion_tokens,
             tokens_cached=usage.cached_tokens,
@@ -221,6 +226,7 @@ def usage_summary(records: list[Record] | None = None) -> dict:
     total_tpm_retries = 0
     total_so_retries = 0
     models_used: set[str] = set()
+    backends_used: set[str] = set()
     has_openrouter = False
 
     for record in records:
@@ -232,6 +238,7 @@ def usage_summary(records: list[Record] | None = None) -> dict:
         total_tpm_retries += record.tpm_retries
         total_so_retries += record.structured_output_retries
         models_used.add(f"{record.provider}/{record.model}")
+        backends_used.add(record.backend)
         if record.provider == "openrouter":
             has_openrouter = True
 
@@ -243,6 +250,7 @@ def usage_summary(records: list[Record] | None = None) -> dict:
         "tokens_total": total_input + total_output,
         "cost_usd": total_cost,
         "models": models_used,
+        "backends": backends_used,
         "has_openrouter": has_openrouter,
         "tpm_retries": total_tpm_retries,
         "structured_output_retries": total_so_retries,
@@ -317,6 +325,10 @@ def print_usage(
     print(cost_line)
 
     print(f"  Models: {', '.join(sorted(summary['models']))}")
+
+    backends_used = summary.get("backends")
+    if backends_used:
+        print(f"  Backends: {', '.join(sorted(backends_used))}")
 
     # Show retry info if requested and there were any retries
     if show_retries:

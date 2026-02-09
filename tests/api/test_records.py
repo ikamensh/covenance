@@ -41,6 +41,7 @@ def _make_record(
     return Record(
         model=model,
         provider=provider,
+        backend="native",
         tokens_input=tokens_in,
         tokens_output=tokens_out,
         tokens_cached=tokens_cached,
@@ -128,6 +129,7 @@ class TestUsageSummary:
             Record(
                 model="gpt-4o",
                 provider="openai",
+                backend="native",
                 tokens_input=100,
                 tokens_output=50,
                 tokens_total=150,
@@ -140,6 +142,7 @@ class TestUsageSummary:
             Record(
                 model="gpt-4o",
                 provider="openai",
+                backend="native",
                 tokens_input=100,
                 tokens_output=50,
                 tokens_total=150,
@@ -254,6 +257,7 @@ class TestLoadRecordsFromJsonl:
         r1 = Record(
             model="m1",
             provider="p",
+            backend="native",
             tokens_input=1,
             tokens_output=1,
             tokens_total=2,
@@ -264,6 +268,7 @@ class TestLoadRecordsFromJsonl:
         r2 = Record(
             model="m2",
             provider="p",
+            backend="native",
             tokens_input=1,
             tokens_output=1,
             tokens_total=2,

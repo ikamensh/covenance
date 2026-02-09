@@ -7,6 +7,7 @@ Module-level helpers route through the default instance so legacy API keeps work
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import copy_context
@@ -17,6 +18,8 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from ._caller_context import capture_caller_context, get_caller_info
+from ._pydantic_ai_backend import ask_pydantic_ai
+from ._routing import NATIVE_BACKEND_PROVIDERS, Backends, get_provider
 from .exceptions import StructuredOutputParsingError
 from .keys import (
     get_anthropic_api_key,
@@ -26,16 +29,17 @@ from .keys import (
     get_openai_api_key,
     get_openrouter_api_key,
 )
-from ._pydantic_ai_backend import ask_pydantic_ai
 from .record import Record, RecordStore, TokenUsage, get_env_records_dir
 from .response_adapter import ResponseTypeAdapter
+
+logger = logging.getLogger("covenance")
 
 # Registry of all Covenance clients created in this process
 _all_clients: list[Covenance] = []
 
-# Providers that use native SDK backend (better for Responses API / schema limits)
-# All other providers use pydantic-ai backend
-_NATIVE_BACKEND_PROVIDERS = {"openai", "grok"}
+# Re-export for backward compat with tests that import from client
+_NATIVE_BACKEND_PROVIDERS = NATIVE_BACKEND_PROVIDERS
+_get_provider = get_provider
 
 
 def _normalize_model(model: str | object) -> str:
@@ -43,22 +47,6 @@ def _normalize_model(model: str | object) -> str:
     if hasattr(model, "value"):  # Enum
         return str(model.value)
     return str(model)
-
-
-def _get_provider(model: str) -> str:
-    """Determine provider from model name."""
-    if model.startswith("gemini"):
-        return "gemini"
-    elif model.startswith(("mistral", "ministral", "codestral")):
-        return "mistral"
-    elif model.startswith("claude"):
-        return "anthropic"
-    elif model.startswith("grok"):
-        return "grok"
-    elif "/" in model:
-        return "openrouter"
-    else:
-        return "openai"
 
 
 class Covenance:
@@ -88,6 +76,7 @@ class Covenance:
         self._openrouter_api_key = openrouter_api_key
         self._grok_api_key = grok_api_key
         self._record_store = RecordStore(records_dir=records_dir, label=label)
+        self.backends = Backends()
 
         # Lazy-initialized native clients (only created if needed)
         self._native_clients: dict[str, Any] | None = None
@@ -149,11 +138,108 @@ class Covenance:
             client = LazyClient(
                 lambda: OpenAI(api_key=api_key, base_url=GROK_BASE_URL), label="grok"
             )
+        elif provider == "gemini":
+            from google import genai
+
+            api_key = require_api_key(self._get_api_key("gemini"), "gemini")
+            client = LazyClient(lambda: genai.Client(api_key=api_key), label="gemini")
+        elif provider == "mistral":
+            from mistralai import Mistral as MistralClient
+
+            api_key = require_api_key(self._get_api_key("mistral"), "mistral")
+            client = LazyClient(lambda: MistralClient(api_key=api_key), label="mistral")
+        elif provider == "anthropic":
+            from anthropic import Anthropic
+
+            api_key = require_api_key(self._get_api_key("anthropic"), "anthropic")
+            client = LazyClient(lambda: Anthropic(api_key=api_key), label="anthropic")
+        elif provider == "openrouter":
+            from openai import OpenAI
+
+            from .clients.openrouter_client import OPENROUTER_BASE_URL
+
+            api_key = require_api_key(self._get_api_key("openrouter"), "openrouter")
+            client = LazyClient(
+                lambda: OpenAI(api_key=api_key, base_url=OPENROUTER_BASE_URL),
+                label="openrouter",
+            )
         else:
             return None
 
         self._native_clients[provider] = client
         return client
+
+    def _call_native_provider[T](
+        self,
+        user_msg: str,
+        model: str,
+        provider: str,
+        llm_type: type[T] | None,
+        sys_msg: str | None,
+        temperature: float | None,
+    ) -> Any:
+        """Dispatch to the appropriate native SDK function. Returns BackendResult."""
+        client = self._get_native_client(provider)
+
+        if provider in ("openai", "grok"):
+            from .clients.openai_client import ask_openai_compatible_structured
+
+            return ask_openai_compatible_structured(
+                client=client,
+                user_msg=user_msg,
+                response_type=llm_type,
+                sys_msg=sys_msg,
+                model=model,
+                provider=provider,
+                temperature=temperature,
+            )
+        elif provider == "gemini":
+            from .clients.google_client import ask_gemini
+
+            return ask_gemini(
+                user_msg=user_msg,
+                response_type=llm_type,
+                sys_msg=sys_msg,
+                model=model,
+                client_override=client.resolve(),
+                temperature=temperature,
+            )
+        elif provider == "mistral":
+            from .clients.mistral_client import ask_mistral
+
+            return ask_mistral(
+                user_msg=user_msg,
+                response_type=llm_type,
+                sys_msg=sys_msg,
+                model=model,
+                client_override=client.resolve(),
+                temperature=temperature,
+            )
+        elif provider == "anthropic":
+            from .clients.anthropic_client import ask_anthropic
+
+            return ask_anthropic(
+                user_msg=user_msg,
+                response_type=llm_type,
+                sys_msg=sys_msg,
+                model=model,
+                client_override=client.resolve(),
+                temperature=temperature,
+            )
+        elif provider == "openrouter":
+            from .clients.openai_client import ask_openai_compatible_structured
+
+            return ask_openai_compatible_structured(
+                client=client,
+                user_msg=user_msg,
+                response_type=llm_type,
+                sys_msg=sys_msg,
+                model=model,
+                provider="openrouter",
+                temperature=temperature,
+            )
+        else:
+            raise ValueError(f"No native backend for provider: {provider}")
 
     def _ask_native[T](
         self,
@@ -167,16 +253,6 @@ class Covenance:
     ) -> Any:
         """Call native SDK backend. Returns BackendResult."""
         from ._backend_result import BackendResult
-
-        client = self._get_native_client(provider)
-
-        # Import the appropriate provider function
-        if provider == "openai":
-            from .clients.openai_client import ask_openai_compatible_structured
-        elif provider == "grok":
-            from .clients.openai_client import ask_openai_compatible_structured
-        else:
-            raise ValueError(f"No native backend for provider: {provider}")
 
         # Adapt response_type for LLM API
         adapter = ResponseTypeAdapter(response_type)
@@ -193,13 +269,12 @@ class Covenance:
 
         for attempt in range(max_attempts):
             try:
-                raw_result = ask_openai_compatible_structured(
-                    client=client,
+                raw_result = self._call_native_provider(
                     user_msg=user_msg,
-                    response_type=llm_type,
-                    sys_msg=sys_msg,
                     model=model,
                     provider=provider,
+                    llm_type=llm_type,
+                    sys_msg=sys_msg,
                     temperature=temperature,
                 )
 
@@ -278,7 +353,15 @@ class Covenance:
         started_at = datetime.now(UTC)
 
         # Route to appropriate backend
-        if provider in _NATIVE_BACKEND_PROVIDERS:
+        backend_name = self.backends.get(provider)
+        logger.debug(
+            "ask_llm: model=%s provider=%s backend=%s",
+            model,
+            provider,
+            backend_name,
+        )
+
+        if backend_name == "native":
             backend_result = self._ask_native(
                 user_msg=user_msg,
                 model=model,
@@ -306,6 +389,7 @@ class Covenance:
         self._record_store.record_llm_call(
             model=model,
             provider=provider,
+            backend=backend_name,
             usage=backend_result.usage,
             started_at=started_at,
             ended_at=ended_at,
@@ -433,6 +517,12 @@ Below are {len(candidates)} candidate answers generated by worker LLMs. Please i
             label = self.label or "default client"
             title = f"LLM Usage Summary ({label})"
         _print_usage(records=self.get_records(), title=title, cost_format=cost_format)
+
+    def print_call_timeline(self, width: int = 80) -> None:
+        """Print a terminal-based waterfall chart of this client's LLM call timings."""
+        from .visual import print_call_timeline as _print_call_timeline
+
+        _print_call_timeline(records=self.get_records(), width=width)
 
 
 _default_client = Covenance(label="default client", records_dir=get_env_records_dir())

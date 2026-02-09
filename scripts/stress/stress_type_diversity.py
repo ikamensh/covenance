@@ -1,9 +1,7 @@
 """Stress test: diverse type combinations."""
 
 from pydantic import BaseModel
-from stress_utils import DEFAULT_MODEL, StressTestResult, run_test_cases
-
-from covenance import Covenance
+from stress_utils import DEFAULT_MODEL, StressTestResult, make_client, run_test_cases
 
 
 class AllPrimitives(BaseModel):
@@ -93,9 +91,11 @@ def validate_nested_complex(result: NestedComplex) -> tuple[bool, str]:
     return True, ""
 
 
-def run_stress_test(model: str = DEFAULT_MODEL) -> StressTestResult:
+def run_stress_test(
+    model: str = DEFAULT_MODEL, backend: str | None = None
+) -> StressTestResult:
     """Test type diversity handling."""
-    client = Covenance(label="stress_types")
+    client = make_client(model, backend)
 
     cases = [
         (

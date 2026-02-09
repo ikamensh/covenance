@@ -1,9 +1,9 @@
-from enum import Enum
+from enum import StrEnum
 
 from covenance.pricing import ModelPricing
 
 
-class ClaudeModels(str, Enum):
+class ClaudeModels(StrEnum):
     """Anthropic Claude model identifiers.
 
     See: https://docs.anthropic.com/claude/docs/models-overview

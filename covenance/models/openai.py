@@ -1,9 +1,9 @@
-from enum import Enum
+from enum import StrEnum
 
 from covenance.pricing import ModelPricing
 
 
-class OpenAIModels(str, Enum):
+class OpenAIModels(StrEnum):
     # Reasoning models
     o3 = "o3"
     o3pro = "o3-pro"

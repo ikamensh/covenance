@@ -90,6 +90,7 @@ def _make_timeline_record(
     return Record(
         model=model,
         provider="test",
+        backend="native",
         tokens_input=100,
         tokens_output=50,
         tokens_total=150,

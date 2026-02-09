@@ -34,6 +34,7 @@ class TestClientRecordStores:
         _default_client.get_record_store().record_llm_call(
             model="gpt-5",
             provider="openai",
+            backend="native",
             usage=TokenUsage(
                 prompt_tokens=12,
                 completion_tokens=8,
@@ -56,6 +57,7 @@ class TestClientRecordStores:
         client.get_record_store().record_llm_call(
             model="gemini-2.5-flash",
             provider="gemini",
+            backend="pydantic",
             usage=TokenUsage(
                 prompt_tokens=5,
                 completion_tokens=7,
@@ -85,6 +87,7 @@ class TestAllClientsAggregation:
         client._record_store.record_llm_call(
             model=model,
             provider=provider,
+            backend="native",
             usage=usage,
             started_at=datetime.now(UTC),
             ended_at=datetime.now(UTC),

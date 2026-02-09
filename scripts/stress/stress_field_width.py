@@ -1,9 +1,7 @@
 """Stress test: models with many fields (width)."""
 
 from pydantic import BaseModel, create_model
-from stress_utils import DEFAULT_MODEL, StressTestResult, run_test_cases
-
-from covenance import Covenance
+from stress_utils import DEFAULT_MODEL, StressTestResult, make_client, run_test_cases
 
 
 # 15 fields
@@ -54,9 +52,11 @@ def validate_wide(result, expected_count: int) -> tuple[bool, str]:
     return True, ""
 
 
-def run_stress_test(model: str = DEFAULT_MODEL) -> StressTestResult:
+def run_stress_test(
+    model: str = DEFAULT_MODEL, backend: str | None = None
+) -> StressTestResult:
     """Test wide models with many fields."""
-    client = Covenance(label="stress_width")
+    client = make_client(model, backend)
 
     cases = [
         (

@@ -1,9 +1,9 @@
-from enum import Enum
+from enum import StrEnum
 
 from covenance.pricing import ModelPricing
 
 
-class MistralModels(str, Enum):
+class MistralModels(StrEnum):
     """Mistral AI model identifiers.
 
     See: https://docs.mistral.ai/getting-started/models/models_overview/
