@@ -39,6 +39,13 @@ def _raise_llm_error(*args, **kwargs):
 def pytest_addoption(parser):
     """Register --run-online flag to enable online tests without filtering."""
     parser.addoption(
+        "--all",
+        dest="run_all",
+        action="store_true",
+        default=False,
+        help="Run all stable tests (offline + online)",
+    )
+    parser.addoption(
         "--run-online",
         action="store_true",
         default=False,
@@ -54,6 +61,8 @@ def pytest_addoption(parser):
 
 def _online_tests_enabled(config: pytest.Config) -> bool:
     """Check if online tests are enabled via --run-online flag or -m online marker."""
+    if config.option.run_all:
+        return True
     # --run-online enables online tests without filtering
     if config.option.run_online:
         return True
@@ -198,7 +207,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         terminalreporter.write_sep("=", "short test summary info")
         if skipped_online > 0:
             terminalreporter.write_line(
-                f"SKIPPED [{skipped_online}] online tests (run with: pytest -m online)"
+                f"SKIPPED [{skipped_online}] online tests (run with: pytest --all or pytest -m online)"
             )
         if skipped_unstable > 0:
             terminalreporter.write_line(

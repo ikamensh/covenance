@@ -24,16 +24,21 @@ class StressTestResult:
 def safe_call(
     client: Covenance, call_fn: Callable, timeout_seconds: int = 60
 ) -> tuple[Any, str | None]:
-    """Execute a call with timeout, returning (result, error_message)."""
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(call_fn)
-        try:
-            result = future.result(timeout=timeout_seconds)
-            return result, None
-        except FuturesTimeoutError:
-            return None, f"Timeout after {timeout_seconds}s"
-        except Exception as e:
-            return None, f"{type(e).__name__}: {str(e)[:200]}"
+    """Execute a call with timeout, returning (result, error_message).
+
+    Uses a daemon thread so that timed-out calls don't block the caller.
+    """
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(call_fn)
+    executor.shutdown(wait=False)
+    try:
+        result = future.result(timeout=timeout_seconds)
+        return result, None
+    except FuturesTimeoutError:
+        future.cancel()
+        return None, f"Timeout after {timeout_seconds}s"
+    except Exception as e:
+        return None, f"{type(e).__name__}: {str(e)[:200]}"
 
 
 def run_test_cases(
@@ -92,6 +97,8 @@ CHEAP_MODELS = {
     "openai": ["gpt-4.1-nano", "gpt-4.1-mini"],
     "google": ["gemini-2.5-flash-lite", "gemini-2.0-flash"],
     "mistral": ["mistral-small-latest"],
+    "grok": ["grok-3-mini"],
+    "anthropic": ["claude-haiku-4-5"],
 }
 
 DEFAULT_MODEL = "gpt-4.1-nano"

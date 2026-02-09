@@ -127,40 +127,65 @@ class Covenance:
         if provider == "openai":
             from openai import OpenAI
 
-            api_key = require_api_key(self._get_api_key("openai"), "openai")
-            client = LazyClient(lambda: OpenAI(api_key=api_key), label="openai")
+            client = LazyClient(
+                lambda: OpenAI(
+                    api_key=require_api_key(self._get_api_key("openai"), "openai")
+                ),
+                label="openai",
+            )
         elif provider == "grok":
             from openai import OpenAI
 
             from .clients.grok_client import GROK_BASE_URL
 
-            api_key = require_api_key(self._get_api_key("grok"), "grok")
             client = LazyClient(
-                lambda: OpenAI(api_key=api_key, base_url=GROK_BASE_URL), label="grok"
+                lambda: OpenAI(
+                    api_key=require_api_key(self._get_api_key("grok"), "grok"),
+                    base_url=GROK_BASE_URL,
+                ),
+                label="grok",
             )
         elif provider == "gemini":
             from google import genai
 
-            api_key = require_api_key(self._get_api_key("gemini"), "gemini")
-            client = LazyClient(lambda: genai.Client(api_key=api_key), label="gemini")
+            client = LazyClient(
+                lambda: genai.Client(
+                    api_key=require_api_key(self._get_api_key("gemini"), "gemini")
+                ),
+                label="gemini",
+            )
         elif provider == "mistral":
             from mistralai import Mistral as MistralClient
 
-            api_key = require_api_key(self._get_api_key("mistral"), "mistral")
-            client = LazyClient(lambda: MistralClient(api_key=api_key), label="mistral")
+            client = LazyClient(
+                lambda: MistralClient(
+                    api_key=require_api_key(self._get_api_key("mistral"), "mistral")
+                ),
+                label="mistral",
+            )
         elif provider == "anthropic":
             from anthropic import Anthropic
 
-            api_key = require_api_key(self._get_api_key("anthropic"), "anthropic")
-            client = LazyClient(lambda: Anthropic(api_key=api_key), label="anthropic")
+            client = LazyClient(
+                lambda: Anthropic(
+                    api_key=require_api_key(
+                        self._get_api_key("anthropic"), "anthropic"
+                    )
+                ),
+                label="anthropic",
+            )
         elif provider == "openrouter":
             from openai import OpenAI
 
             from .clients.openrouter_client import OPENROUTER_BASE_URL
 
-            api_key = require_api_key(self._get_api_key("openrouter"), "openrouter")
             client = LazyClient(
-                lambda: OpenAI(api_key=api_key, base_url=OPENROUTER_BASE_URL),
+                lambda: OpenAI(
+                    api_key=require_api_key(
+                        self._get_api_key("openrouter"), "openrouter"
+                    ),
+                    base_url=OPENROUTER_BASE_URL,
+                ),
                 label="openrouter",
             )
         else:

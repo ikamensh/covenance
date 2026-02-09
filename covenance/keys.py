@@ -14,7 +14,7 @@ _API_KEY_ENV_VARS: dict[str, list[str]] = {
     "mistral": ["MISTRAL_API_KEY"],
     "openrouter": ["OPENROUTER_API_KEY"],
     "gemini": ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
-    "grok": ["XAI_API_KEY", "GROK_API_KEY"],
+    "grok": ["GROK_API_KEY", "XAI_API_KEY"],
 }
 
 

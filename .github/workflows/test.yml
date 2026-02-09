@@ -36,18 +36,27 @@ jobs:
         run: |
           pip install -e ".[all,dev]"
       
-      - name: Run pytest
-        run: pytest --cov --cov-branch --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
+      - name: Run all stable tests with coverage (xdist)
+        run: |
+          pytest --all -n auto --cov=covenance --cov-branch --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
         env:
           CI: true
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
 
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
         uses: codecov/test-results-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          files: junit.xml

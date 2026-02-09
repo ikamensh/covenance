@@ -24,6 +24,8 @@ MODELS_TO_TEST = [
     ("openai", "gpt-4.1-nano"),
     ("google", "gemini-2.5-flash-lite"),
     ("mistral", "mistral-small-latest"),
+    ("grok", "grok-3-mini"),
+    ("anthropic", "claude-haiku-4-5"),
 ]
 
 # All test modules
@@ -303,6 +305,8 @@ def run_quick_test(model: str = "gpt-4.1-nano", backend: str | None = None):
         provider = "mistral"
     elif model.startswith("claude"):
         provider = "anthropic"
+    elif model.startswith("grok"):
+        provider = "grok"
 
     backends = [backend] if backend != "both" else ["native", "pydantic"]
     return run_all_tests(

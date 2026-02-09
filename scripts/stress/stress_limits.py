@@ -249,7 +249,7 @@ def run_stress_test(
                 model=model,
                 response_type=rt,
             ),
-            timeout_seconds=120,  # Longer timeout for complex schemas
+            timeout_seconds=60,
         )
 
         if error:

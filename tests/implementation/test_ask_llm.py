@@ -106,6 +106,30 @@ def test_routes_to_native_backend_for_grok():
     assert call_kwargs["provider"] == "grok"
 
 
+def test_routes_to_native_backend_for_grok_without_eager_key_check():
+    """Routing should not require grok key when native call is mocked."""
+    expected = SimpleResponse(answer="Paris", confidence=0.95)
+    client = covenance.Covenance()
+
+    with patch("covenance.client.get_grok_api_key", return_value=None):
+        with patch(
+            "covenance.clients.openai_client.ask_openai_compatible_structured"
+        ) as mock_native:
+            mock_native.return_value = _mock_backend_result(expected)
+
+            result = client.ask_llm(
+                user_msg="What is the capital of France?",
+                response_type=SimpleResponse,
+                model="grok-4",
+            )
+
+    assert result == expected
+    mock_native.assert_called_once()
+    call_kwargs = mock_native.call_args.kwargs
+    assert call_kwargs["model"] == "grok-4"
+    assert call_kwargs["provider"] == "grok"
+
+
 def test_routes_to_pydantic_ai_backend_for_anthropic():
     """Anthropic models use pydantic-ai backend."""
     expected = SimpleResponse(answer="Paris", confidence=0.95)

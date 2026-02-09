@@ -23,3 +23,8 @@
 3. Push tag: `git push origin vX.Y.Z`
 4. Build and upload as above
 
+## Test commands
+- Run all stable tests (offline + online): `pytest --all`
+- Run unstable external tests too: `pytest --all --run-unstable-external`
+- CI-style single run with one coverage file:
+  - `pytest --all -n auto --cov=covenance --cov-branch --cov-report=xml --junitxml=junit.xml -o junit_family=legacy`
