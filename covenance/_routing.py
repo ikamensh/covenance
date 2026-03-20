@@ -14,7 +14,7 @@ _DEFAULTS: dict[str, str] = {
     "grok": "native",
     "gemini": "pydantic",
     "anthropic": "pydantic",
-    "mistral": "pydantic",
+    "mistral": "native",
     "openrouter": "pydantic",
 }
 

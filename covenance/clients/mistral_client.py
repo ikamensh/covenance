@@ -1,9 +1,9 @@
 """Mistral AI client with structured output support and automatic retry.
 
-Note on structured output reliability:
-Mistral uses probabilistic JSON generation, not constrained decoding like OpenAI.
-This means structured output may occasionally produce invalid JSON and require retry.
-Each retry attempt is recorded honestly as a separate LLM call.
+Note on structured output:
+Mistral's chat.parse() uses strict JSON schema mode (strict=True) which constrains
+decoding to match the schema exactly. JSON parse retries are kept as a safety net
+but should rarely trigger with strict mode enabled.
 """
 
 import json

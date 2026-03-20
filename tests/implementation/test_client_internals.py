@@ -28,13 +28,13 @@ def test_provider_routing():
 
 
 def test_native_backend_providers():
-    """Verify native backend is used for OpenAI and Grok providers."""
+    """Verify native backend is used for OpenAI, Grok, and Mistral providers."""
     assert "openai" in _NATIVE_BACKEND_PROVIDERS
     assert "grok" in _NATIVE_BACKEND_PROVIDERS
+    assert "mistral" in _NATIVE_BACKEND_PROVIDERS
     # pydantic-ai providers should NOT be in native backend
     assert "gemini" not in _NATIVE_BACKEND_PROVIDERS
     assert "anthropic" not in _NATIVE_BACKEND_PROVIDERS
-    assert "mistral" not in _NATIVE_BACKEND_PROVIDERS
 
 
 def test_native_clients_lazy_creation():
@@ -57,7 +57,7 @@ def test_default_backends():
     assert client.backends.grok == "native"
     assert client.backends.gemini == "pydantic"
     assert client.backends.anthropic == "pydantic"
-    assert client.backends.mistral == "pydantic"
+    assert client.backends.mistral == "native"
     assert client.backends.openrouter == "pydantic"
 
 

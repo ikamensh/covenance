@@ -147,11 +147,11 @@ def test_routes_to_pydantic_ai_backend_for_anthropic():
     mock_backend.assert_called_once()
 
 
-def test_routes_to_pydantic_ai_backend_for_mistral():
-    """Mistral models use pydantic-ai backend."""
+def test_routes_to_native_backend_for_mistral():
+    """Mistral models use native backend (strict JSON schema mode via chat.parse)."""
     expected = SimpleResponse(answer="Paris", confidence=0.95)
 
-    with patch("covenance.client.ask_pydantic_ai") as mock_backend:
+    with patch("covenance.clients.mistral_client.ask_mistral") as mock_backend:
         mock_backend.return_value = _mock_backend_result(expected)
 
         result = covenance.ask_llm(
