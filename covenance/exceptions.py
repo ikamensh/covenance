@@ -48,7 +48,7 @@ def require_provider(provider: str) -> None:
         elif provider == "google":
             import google.genai  # noqa: F401
         elif provider == "mistral":
-            import mistralai  # noqa: F401
+            import mistralai.client  # noqa: F401
     except ImportError as e:
         raise MissingProviderError(
             f"The '{package}' package is required for {provider} models. "

@@ -4,7 +4,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
-from mistralai.models import SDKError
+from mistralai.client.errors import SDKError
 
 from covenance.clients.mistral_client import ask_mistral
 from covenance.exceptions import StructuredOutputParsingError
@@ -101,7 +101,7 @@ def test_sdk_error_rate_limit_by_string(mock_sleep, mock_client):
 
     class MockSDK(SDKError):
         def __init__(self):
-            super().__init__(message="429 rate limit exceeded", raw_response=MagicMock())
+            super().__init__(message="429 rate limit exceeded", raw_response=MagicMock(status_code=429))
 
     success_resp = _mock_mistral_success(content="OK")
     mock_client.chat.complete.side_effect = [MockSDK(), success_resp]

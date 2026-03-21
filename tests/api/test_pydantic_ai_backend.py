@@ -160,6 +160,7 @@ def _install_fake_provider_modules(monkeypatch):
     )
     monkeypatch.setitem(sys.modules, "anthropic", types.ModuleType("x"))
     monkeypatch.setitem(sys.modules, "mistralai", types.ModuleType("x"))
+    monkeypatch.setitem(sys.modules, "mistralai.client", types.ModuleType("x"))
 
     sys.modules["pydantic_ai.models.openai"].OpenAIChatModel = OpenAIChatModel
     sys.modules["pydantic_ai.providers.openai"].OpenAIProvider = OpenAIProvider
@@ -170,7 +171,7 @@ def _install_fake_provider_modules(monkeypatch):
     )
     sys.modules["pydantic_ai.models.google"].GoogleModel = GoogleModel
     sys.modules["pydantic_ai.providers.google"].GoogleProvider = GoogleProvider
-    sys.modules["mistralai"].Mistral = MistralClient
+    sys.modules["mistralai.client"].Mistral = MistralClient
     sys.modules["pydantic_ai.models.mistral"].MistralModel = MistralModel
     sys.modules["pydantic_ai.providers.mistral"].MistralProvider = MistralProvider
 

@@ -18,7 +18,7 @@ from covenance.record import TokenUsage
 from covenance.retry import exponential_backoff
 
 if TYPE_CHECKING:
-    from mistralai import Mistral
+    from mistralai.client import Mistral
 
     from covenance._backend_result import BackendResult
 
@@ -27,7 +27,7 @@ T = TypeVar("T")
 
 def _create_mistral_client() -> "Mistral":
     require_provider("mistral")
-    from mistralai import Mistral
+    from mistralai.client import Mistral
 
     api_key = require_api_key(get_mistral_api_key(), "mistral")
     return Mistral(api_key=api_key)
@@ -102,7 +102,7 @@ def ask_mistral[T](
     If response_type is str or None, performs a standard chat completion and returns the text.
     Raises StructuredOutputParsingError (with usage) on parse failure.
     """
-    from mistralai.models import HTTPValidationError, SDKError
+    from mistralai.client.errors import SDKError
 
     from covenance._backend_result import BackendResult
 
@@ -201,7 +201,7 @@ def ask_mistral[T](
             time.sleep(0.5)
             continue
 
-        except (SDKError, HTTPValidationError) as e:
+        except SDKError as e:
             error_str = str(e)
             error_type = type(e).__name__
 

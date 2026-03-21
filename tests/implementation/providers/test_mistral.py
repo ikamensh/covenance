@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from mistralai.models import HTTPValidationError, SDKError
+from mistralai.client.errors import SDKError
 from pydantic import BaseModel
 
 from covenance.clients.mistral_client import (
@@ -146,8 +146,7 @@ def test_ask_mistral_retries_on_rate_limit(mock_sleep, mock_client):
     # Use a real exception that can be raised
     class MockSDKError(SDKError):
         def __init__(self):
-            super().__init__(message="Rate limit exceeded", raw_response=MagicMock())
-            self.status_code = 429
+            super().__init__(message="Rate limit exceeded", raw_response=MagicMock(status_code=429))
 
     rate_limit_error = MockSDKError()
     mock_client.chat.complete.side_effect = [rate_limit_error, mock_response]
@@ -166,8 +165,7 @@ def test_ask_mistral_raises_after_max_retries(mock_sleep, mock_client):
 
     class MockSDKError(SDKError):
         def __init__(self):
-            super().__init__(message="Rate limit exceeded", raw_response=MagicMock())
-            self.status_code = 429
+            super().__init__(message="Rate limit exceeded", raw_response=MagicMock(status_code=429))
 
     rate_limit_error = MockSDKError()
     mock_client.chat.complete.side_effect = rate_limit_error
@@ -226,12 +224,15 @@ def test_ask_mistral_missing_parsed_raises(mock_sleep, mock_client):
 @patch("covenance.clients.mistral_client.time.sleep", autospec=True)
 def test_ask_mistral_non_rate_limit_error_raises_immediately(mock_sleep, mock_client):
     """Property test: non-rate-limit errors raise immediately."""
-    # Create a mock HTTPValidationError
-    validation_error = MagicMock(spec=HTTPValidationError)
-    validation_error.__str__ = lambda self: "Invalid request"
-    mock_client.chat.complete.side_effect = validation_error
 
-    with pytest.raises(Exception):  # Will catch the MagicMock exception
+    class NonRateLimitSDKError(SDKError):
+        def __init__(self):
+            super().__init__(message="Invalid request", raw_response=MagicMock(status_code=400))
+            self.status_code = 400
+
+    mock_client.chat.complete.side_effect = NonRateLimitSDKError()
+
+    with pytest.raises(SDKError):
         ask_mistral("Hello", response_type=str)
 
     # Should not retry
@@ -258,8 +259,7 @@ def test_ask_mistral_rate_limit_by_status_code(mock_sleep, mock_client):
 
     class MockSDKError(SDKError):
         def __init__(self):
-            super().__init__(message="Error", raw_response=MagicMock())
-            self.status_code = 429
+            super().__init__(message="Error", raw_response=MagicMock(status_code=429))
 
     rate_limit_error = MockSDKError()
     mock_client.chat.complete.side_effect = [rate_limit_error, mock_response]

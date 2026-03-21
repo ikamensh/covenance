@@ -155,7 +155,7 @@ class Covenance:
                 label="gemini",
             )
         elif provider == "mistral":
-            from mistralai import Mistral as MistralClient
+            from mistralai.client import Mistral as MistralClient
 
             client = LazyClient(
                 lambda: MistralClient(

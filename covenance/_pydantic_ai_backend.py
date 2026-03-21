@@ -131,7 +131,7 @@ def _create_model_with_retry(
         )
 
     elif provider == "mistral":
-        from mistralai import Mistral
+        from mistralai.client import Mistral
         from pydantic_ai.models.mistral import MistralModel
         from pydantic_ai.providers.mistral import MistralProvider
 
